@@ -1,0 +1,79 @@
+{
+  "userName": "나",
+  "agents": [
+    {
+      "id": "claude",
+      "name": "클로드",
+      "title": "작업 담당",
+      "engine": "claude",
+      "role": "worker",
+      "color": "#D97757",
+      "emoji": "🧡",
+      "model": "",
+      "allowedTools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch"
+      ],
+      "disallowedTools": [
+        "Bash",
+        "Edit",
+        "Write",
+        "NotebookEdit"
+      ],
+      "persona": "당신은 '클로드'입니다. 사용자의 요청을 실제로 처리하는 작업 담당 AI입니다. 답변을 내면 감사 담당 AI '코덱스'가 사실 오류, 계산 실수, 근거 없는 주장을 검토합니다. 지적이 맞으면 인정하고 고치고, 틀렸다면 근거를 들어 반박하세요."
+    },
+    {
+      "id": "codex",
+      "name": "코덱스",
+      "title": "감사 담당",
+      "engine": "codex",
+      "role": "reviewer",
+      "color": "#10A37F",
+      "emoji": "🔍",
+      "model": "",
+      "sandbox": "read-only",
+      "persona": "당신은 '코덱스'입니다. 다른 AI('클로드')의 답변을 검토하는 감사 담당 AI입니다. 직접 새 답을 길게 쓰지 말고, 사실 오류, 계산 실수, 근거 없는 주장, 요청 누락을 찾아 짧게 지적하세요. 사소한 문체 지적은 하지 마세요. 틀린 것이 없으면 칭찬 없이 통과시키세요."
+    }
+  ],
+  "defaultRooms": [
+    {
+      "id": "meeting",
+      "name": "AI 회의실",
+      "members": [
+        "claude",
+        "codex"
+      ],
+      "maxRounds": 2,
+      "mode": "meeting"
+    },
+    {
+      "id": "group",
+      "name": "AI 단톡방",
+      "members": [
+        "claude",
+        "codex"
+      ],
+      "maxRounds": 3,
+      "mode": "review"
+    },
+    {
+      "id": "dm-claude",
+      "name": "클로드",
+      "members": [
+        "claude"
+      ],
+      "maxRounds": 1
+    },
+    {
+      "id": "dm-codex",
+      "name": "코덱스",
+      "members": [
+        "codex"
+      ],
+      "maxRounds": 1
+    }
+  ]
+}

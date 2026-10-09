@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>DOMO</title>
+  <meta name="description" content="디자인 전공생을 위한 AI 스튜디오. 평소에는 AI 한 명이, 크리틱·컨셉·리서치·검증이 필요할 때만 팀이 일합니다.">
+  <meta name="theme-color" content="#fff5e8">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600&display=swap">
+  <style>
+    :root {
+      --bg: #fff5e8; --card: #fffaf3; --ink: #24364b; --ink-2: rgba(36, 54, 75, 0.68); --ink-3: rgba(36, 54, 75, 0.45);
+      --line: rgba(36, 54, 75, 0.12); --line-2: rgba(36, 54, 75, 0.22); --accent: #f5a985; --accent-soft: #fde4d6; --accent-line: #e9946c;
+      --serif: "Noto Serif KR", "Apple Myungjo", serif;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, monospace;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    :focus-visible { outline: 2px solid #c9734f; outline-offset: 3px; border-radius: 8px; }
+    .wrap { width: min(1040px, 100%); margin: 0 auto; padding: 0 20px; }
+    header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+    .brand { display: flex; align-items: center; gap: 10px; font: 600 18px var(--serif); letter-spacing: 0.06em; text-decoration: none; }
+    .top-links { display: flex; gap: 6px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 22px; border-radius: 999px; font-weight: 600; text-decoration: none; border: 0; cursor: pointer; font-size: 15px; transition: transform 0.1s ease-out; white-space: nowrap; }
+    .btn:active { transform: scale(0.96); }
+    .btn.dark { background: var(--ink); color: var(--bg); }
+    .btn.apricot { background: var(--accent); color: var(--ink); }
+    .btn.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-2); font-weight: 500; }
+    .btn.small { min-height: 38px; padding: 0 16px; font-size: 14px; }
+    .hero { padding: 72px 0 56px; text-align: center; }
+    .hero h1 { font: 600 clamp(44px, 9vw, 84px)/1 var(--serif); letter-spacing: 0.08em; margin: 18px 0 18px; }
+    .hero .lead { font-size: clamp(17px, 2.4vw, 20px); color: var(--ink-2); max-width: 600px; margin: 0 auto 30px; }
+    .hero .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    .mark { width: 76px; height: 76px; border-radius: 20px; display: block; margin: 0 auto; }
+    section { padding: 48px 0; border-top: 1px solid var(--line); }
+    h2 { font: 600 clamp(24px, 4vw, 32px)/1.3 var(--serif); margin: 0 0 10px; letter-spacing: -0.01em; }
+    .sub { color: var(--ink-2); margin: 0 0 26px; max-width: 640px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .card { background: var(--card); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--line); padding: 20px; }
+    .card b { display: block; font-size: 17px; margin-bottom: 6px; }
+    .card p { margin: 0; color: var(--ink-2); font-size: 15px; }
+    .card code { font: 13px var(--mono); background: rgba(36, 54, 75, 0.07); padding: 2px 7px; border-radius: 6px; display: inline-block; margin-bottom: 10px; }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .compare .card.solo { background: var(--card); }
+    .compare .card.team { background: var(--accent-soft); box-shadow: none; }
+    .compare ul { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 15px; }
+    .steps { counter-reset: s; display: grid; gap: 12px; }
+    .step { display: grid; grid-template-columns: 40px 1fr; gap: 14px; align-items: start; background: var(--card); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--line); padding: 18px 20px; }
+    .step::before { counter-increment: s; content: counter(s); width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-weight: 600; font-size: 14px; }
+    .step b { display: block; }
+    .step p { margin: 2px 0 0; color: var(--ink-2); font-size: 15px; }
+    .cmd { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--bg); font: 14px var(--mono); border: 0; width: 100%; text-align: left; cursor: pointer; }
+    .cmd span { overflow-wrap: anywhere; }
+    .tabs { display: inline-flex; background: rgba(36, 54, 75, 0.06); border-radius: 12px; padding: 3px; gap: 2px; margin-bottom: 16px; }
+    .tabs button { min-height: 36px; padding: 0 16px; border-radius: 9px; border: 0; background: none; font: inherit; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+    .tabs button[aria-selected="true"] { background: #fffdf9; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(36, 54, 75, 0.12); }
+    .open-form { display: flex; gap: 8px; flex-wrap: wrap; }
+    .open-form input { flex: 1; min-width: 220px; min-height: 46px; padding: 0 16px; border-radius: 999px; border: 0; background: #fffdf9; box-shadow: inset 0 0 0 1px var(--line-2); font: inherit; font-size: 16px; color: var(--ink); outline: none; }
+    .open-form input:focus { box-shadow: inset 0 0 0 2px var(--accent-line); }
+    .note { font-size: 13px; color: var(--ink-3); margin-top: 12px; }
+    footer { padding: 36px 0 48px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13px; text-align: center; }
+    [hidden] { display: none !important; }
+    .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 14px; font-size: 14px; }
+    @media (max-width: 640px) {
+      .hero { padding: 48px 0 40px; }
+      .compare { grid-template-columns: 1fr; }
+      .top-links .hide-sm { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="./"><img src="mark-ink.svg" alt="" width="26" height="26">DOMO</a>
+      <nav class="top-links">
+        <a class="btn ghost small hide-sm" href="#how">사용법</a>
+        <a class="btn dark small" href="#start">내 DOMO 만들기</a>
+      </nav>
+    </header>
+
+    <div class="hero">
+      <img class="mark" src="icon-180.png" alt="">
+      <h1>DOMO</h1>
+      <p class="lead">디자인 전공생을 위한 AI 스튜디오. 평소에는 AI 한 명이 빠르게 답하고, 크리틱·컨셉·리서치·검증이 필요할 때만 팀이 함께 일합니다.</p>
+      <div class="actions">
+        <a class="btn dark" href="#start">회원가입하고 시작하기</a>
+        <a class="btn ghost" href="#open">이미 내 DOMO가 있어요</a>
+      </div>
+    </div>
+  </div>
+
+  <section id="why">
+    <div class="wrap">
+      <h2>왜 기본은 AI 한 명일까</h2>
+      <p class="sub">여러 AI가 매번 함께 답하면 느리고 비싸며, 서로에게 맞장구치는 동조가 생깁니다. 하지만 서로를 보지 않고 따로 만들거나, 다른 회사 모델이 교차 검증하거나, 기준표로 나눠 채점할 때는 팀이 확실히 낫습니다. DOMO는 그 순간에만 팀을 부르고, 정말 나은지는 블라인드 비교로 직접 확인합니다.</p>
+      <div class="compare">
+        <div class="card solo"><b>AI 한 명</b><p>일반 질문, 글 다듬기, 일정 정리</p><ul><li>빠르고 가볍다</li><li>대화 맥락과 내 기억을 그대로 이어간다</li></ul></div>
+        <div class="card team"><b>팀 (필요할 때만)</b><p>크리틱, 컨셉, 리서치, 사실 검증</p><ul><li>서로를 보지 않고 따로 작업한 뒤 합친다</li><li>Claude가 만들고 Codex가 검증한다</li><li>마지막 결정은 언제나 내가 한다</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <h2>이렇게 씁니다</h2>
+      <p class="sub">입력창에 명령을 붙이거나 팀 서비스 버튼을 누르면 됩니다.</p>
+      <div class="grid">
+        <div class="card"><code>/크리틱</code><b>크리틱 리허설</b><p>작업물과 교수님 기준표를 주면 교수·사용자·디테일 시점이 따로 채점하고, 고칠 점 세 가지와 예상 질문을 정리합니다.</p></div>
+        <div class="card"><code>/컨셉</code><b>컨셉 3안</b><p>내 1차 가설에서 출발해 확장·반박·와일드카드 세 방향을 만들고, 내 기준으로 채점한 결정 카드를 줍니다.</p></div>
+        <div class="card"><code>/리서치</code><b>데스크리서치</b><p>측정·파생·미확인 라벨과 출처가 붙은 팩트시트를 만들고, 다른 회사 모델이 교차 검증합니다.</p></div>
+        <div class="card"><code>/비교</code><b>1명 vs 팀 블라인드 비교</b><p>같은 요청을 두 방식으로 받아 누가 썼는지 모르게 고릅니다. 결과는 유형별 승률로 쌓입니다.</p></div>
+      </div>
+      <p class="note">대화에서 나온 과제·프로젝트·내 기준은 자동으로 기억되고, 반복되는 작업은 스킬로 자동 등록됩니다.</p>
+    </div>
+  </section>
+
+  <section id="start">
+    <div class="wrap">
+      <h2>내 DOMO 만들기</h2>
+      <p class="sub">DOMO는 각자 자기 환경에서 띄우고, 본인 Claude·Codex 구독으로 로그인해서 씁니다. 로그인 정보는 공식 앱이 각자의 환경 안에서만 관리하고, DOMO는 AI 계정 정보를 보관하지 않습니다. 회원가입은 내 DOMO를 처음 열 때 첫 화면에서 합니다.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="cs">브라우저만으로 (Codespaces)</button>
+        <button role="tab" aria-selected="false" data-tab="mac">내 Mac에서</button>
+      </div>
+      <div class="steps" data-panel="cs">
+        <div class="step"><div><b>Codespace 열기</b><p>GitHub 계정으로 내 전용 DOMO 환경을 만듭니다. 무료 사용량 안에서 쓸 수 있어요.</p><p style="margin-top:12px"><a id="csLink" class="btn apricot" href="https://codespaces.new/juwangoh/domo?quickstart=1" target="_blank" rel="noopener">Codespace에서 DOMO 열기</a></p></div></div>
+        <div class="step"><div><b>본인 AI 계정으로 로그인</b><p>Codespace 아래 터미널에서 실행하고, 열리는 페이지에서 본인 계정으로 로그인합니다. Codex는 선택이에요.</p><button class="cmd" data-copy="claude auth login"><span>claude auth login</span><span>복사</span></button><button class="cmd" data-copy="codex login"><span>codex login</span><span>복사</span></button></div></div>
+        <div class="step"><div><b>DOMO 켜고 회원가입</b><p>실행한 뒤 포트 탭의 3939 주소를 열면 회원가입 화면이 나옵니다. 가입하면 몇 가지 질문으로 내 팀을 맞춰 드려요.</p><button class="cmd" data-copy="npm start"><span>npm start</span><span>복사</span></button></div></div>
+      </div>
+      <div class="steps" data-panel="mac" hidden>
+        <div class="step"><div><b>AI 도구 설치</b><button class="cmd" data-copy="npm install -g @anthropic-ai/claude-code @openai/codex"><span>npm install -g @anthropic-ai/claude-code @openai/codex</span><span>복사</span></button></div></div>
+        <div class="step"><div><b>본인 AI 계정으로 로그인</b><button class="cmd" data-copy="claude auth login"><span>claude auth login</span><span>복사</span></button><button class="cmd" data-copy="codex login"><span>codex login</span><span>복사</span></button></div></div>
+        <div class="step"><div><b>DOMO 받고 켜기</b><button class="cmd" data-copy="git clone https://github.com/juwangoh/domo.git && cd domo && npm start"><span>git clone https://github.com/juwangoh/domo.git && cd domo && npm start</span><span>복사</span></button><p>브라우저로 http://localhost:3939 를 열면 회원가입 화면이 나옵니다.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="open">
+    <div class="wrap">
+      <h2>이미 내 DOMO가 있어요</h2>
+      <p class="sub">내 DOMO 주소를 입력하면 이 브라우저가 기억해 두고 바로 열어 줍니다. 주소는 이 기기에만 저장됩니다.</p>
+      <form class="open-form" id="openForm">
+        <input id="addr" type="url" inputmode="url" placeholder="https://… 또는 http://localhost:3939" autocomplete="url" aria-label="내 DOMO 주소">
+        <button class="btn dark" type="submit">내 DOMO 열기</button>
+      </form>
+    </div>
+  </section>
+
+  <footer><div class="wrap">DOMO · Claude Code + Codex 기반 · 디자인 전공생을 위한 AI 스튜디오</div></footer>
+
+  <script>
+    // 탭 전환
+    for (const b of document.querySelectorAll('.tabs button')) {
+      b.addEventListener('click', () => {
+        for (const x of document.querySelectorAll('.tabs button')) x.setAttribute('aria-selected', String(x === b));
+        for (const p of document.querySelectorAll('[data-panel]')) p.hidden = p.dataset.panel !== b.dataset.tab;
+      });
+    }
+    // 명령 복사
+    const toast = (t) => { document.querySelector('.toast')?.remove(); const el = Object.assign(document.createElement('div'), { className: 'toast', textContent: t }); document.body.append(el); setTimeout(() => el.remove(), 2200); };
+    for (const b of document.querySelectorAll('[data-copy]')) {
+      b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('복사했어요'); } catch { toast(b.dataset.copy); } });
+    }
+    // 내 DOMO 주소 기억 (이 기기의 브라우저에만 저장)
+    const KEY = 'domo:address';
+    const addr = document.getElementById('addr');
+    try { addr.value = localStorage.getItem(KEY) || ''; } catch { /* 저장소를 못 쓰는 브라우저 */ }
+    document.getElementById('openForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      let v = addr.value.trim();
+      if (!v) { addr.focus(); return; }
+      if (!/^https?:\/\//.test(v)) v = `https://${v}`;
+      try { new URL(v); } catch { toast('주소 형식을 확인해 주세요'); return; }
+      try { localStorage.setItem(KEY, v); } catch { /* 무시 */ }
+      location.href = v;
+    });
+  </script>
+</body>
+</html>

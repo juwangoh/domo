@@ -1,0 +1,13 @@
+{
+  "name": "DOMO",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postCreateCommand": "npm install -g @anthropic-ai/claude-code @openai/codex",
+  "postAttachCommand": "echo '\\n👋 DOMO: ① claude 로 Claude 로그인  ② codex login 으로 Codex 로그인  ③ npm start\\n'",
+  "forwardPorts": [3939],
+  "portsAttributes": {
+    "3939": { "label": "DOMO", "onAutoForward": "openBrowser" }
+  },
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md"] }
+  }
+}

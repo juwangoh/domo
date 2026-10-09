@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>DOMO</title>
+  <meta name="description" content="디자인 전공생을 위한 AI 스튜디오 · Claude Code + Codex">
+  <meta name="theme-color" content="#fff5e8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="DOMO">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- 회원가입 · 로그인 -->
+  <main id="auth" class="auth" hidden></main>
+  <!-- 온보딩 -->
+  <main id="onboarding" class="onboarding" hidden></main>
+
+  <div id="app" class="app" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="메뉴"></aside>
+    <div id="scrim" class="drawer-scrim"></div>
+    <div id="main" class="main" data-view="home">
+      <header id="topbar" class="topbar"></header>
+      <div id="connBanner" class="conn-banner" hidden></div>
+      <section id="view-home" class="view-home"></section>
+      <section id="view-chat" class="view-chat" hidden>
+        <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        <button id="jumpBtn" class="jump-btn" type="button" hidden>새 메시지 ↓</button>
+        <div class="chat-bottom">
+          <div id="projectStrip" class="project-strip" hidden></div>
+          <div id="chatComposer"></div>
+          <p class="disclaimer">AI는 틀릴 수 있어요. 중요한 사실은 /검증으로 한 번 더 확인하세요.</p>
+        </div>
+      </section>
+      <section id="view-page" class="view-page" hidden></section>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*" hidden>
+  <script src="/js/core.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/pages.js"></script>
+</body>
+</html>
