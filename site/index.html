@@ -62,9 +62,6 @@
     .tabs { display: inline-flex; background: rgba(36, 54, 75, 0.06); border-radius: 12px; padding: 3px; gap: 2px; margin-bottom: 16px; }
     .tabs button { min-height: 36px; padding: 0 16px; border-radius: 9px; border: 0; background: none; font: inherit; font-size: 14px; color: var(--ink-2); cursor: pointer; }
     .tabs button[aria-selected="true"] { background: #fffdf9; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(36, 54, 75, 0.12); }
-    .open-form { display: flex; gap: 8px; flex-wrap: wrap; }
-    .open-form input { flex: 1; min-width: 220px; min-height: 46px; padding: 0 16px; border-radius: 999px; border: 0; background: #fffdf9; box-shadow: inset 0 0 0 1px var(--line-2); font: inherit; font-size: 16px; color: var(--ink); outline: none; }
-    .open-form input:focus { box-shadow: inset 0 0 0 2px var(--accent-line); }
     .btn .ic { flex: none; }
     .btn.big { min-height: 54px; padding: 0 28px; font-size: 16px; }
     .dl-meta { margin: 14px 0 0; font-size: 13px; color: var(--ink-3); }
@@ -186,17 +183,6 @@
     </div>
   </section>
 
-  <section id="open">
-    <div class="wrap">
-      <h2>이미 내 DOMO가 있어요</h2>
-      <p class="sub">내 DOMO 주소를 입력하면 이 브라우저가 기억해 두고 바로 열어 줍니다. 주소는 이 기기에만 저장됩니다.</p>
-      <form class="open-form" id="openForm">
-        <input id="addr" type="url" inputmode="url" placeholder="https://… 또는 http://localhost:3939" autocomplete="url" aria-label="내 DOMO 주소">
-        <button class="btn dark" type="submit">내 DOMO 열기</button>
-      </form>
-    </div>
-  </section>
-
   <footer><div class="wrap">DOMO · Claude Code + Codex 기반 · 디자인 전공생을 위한 AI 스튜디오</div></footer>
 
   <script>
@@ -249,19 +235,6 @@
     for (const b of document.querySelectorAll('[data-copy]')) {
       b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('복사했어요'); } catch { toast(b.dataset.copy); } });
     }
-    // 내 DOMO 주소 기억 (이 기기의 브라우저에만 저장)
-    const KEY = 'domo:address';
-    const addr = document.getElementById('addr');
-    try { addr.value = localStorage.getItem(KEY) || ''; } catch { /* 저장소를 못 쓰는 브라우저 */ }
-    document.getElementById('openForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      let v = addr.value.trim();
-      if (!v) { addr.focus(); return; }
-      if (!/^https?:\/\//.test(v)) v = `https://${v}`;
-      try { new URL(v); } catch { toast('주소 형식을 확인해 주세요'); return; }
-      try { localStorage.setItem(KEY, v); } catch { /* 무시 */ }
-      location.href = v;
-    });
   </script>
 </body>
 </html>
