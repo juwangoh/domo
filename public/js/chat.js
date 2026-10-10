@@ -223,7 +223,7 @@
     S.roomId = id;
     S.unread[id] = 0;
     $('chatComposer').append(composer);
-    if (switching) { if (!S.messages.length || S.messages[0]?.roomId !== id) S.messages = []; D.renderMessages(); setReply(null); }
+    if (switching) { pinned = true; if (!S.messages.length || S.messages[0]?.roomId !== id) S.messages = []; D.renderMessages(); setReply(null); }
     D.renderChatHeader();
     D.renderTopbar();
     D.syncComposer();
@@ -236,7 +236,7 @@
       D.renderMessages();
       D.renderChatHeader();
       D.syncComposer();
-      if (!keepScroll || nearBottom()) scrollToBottom(false);
+      if (!keepScroll || pinned) scrollToBottom(false);
     } catch (err) { if (err.message !== 'login') D.toast(err.message); }
     if (!D.coarse && switching) input.focus();
   };
@@ -246,10 +246,17 @@
     if (room) room.last = msg;
     if (msg.roomId === S.roomId && S.view === 'chat') {
       if (!S.messages.some((m) => m.id === msg.id)) {
-        const stick = nearBottom();
         S.messages.push(msg);
-        D.renderMessages(msg.id);
-        if (stick || msg.sender === 'user') scrollToBottom(true); else $('jumpBtn').hidden = false;
+        // 전체를 다시 그리지 않고 새 메시지만 붙인다 (스크롤이 튀지 않게).
+        const holder = $('typingRows');
+        if (holder && nodes.size) {
+          $('messages').querySelector('.thread-empty')?.remove();
+          const el = renderOne(msg, currentRoom(), true);
+          nodes.set(msg.id, el);
+          holder.before(el);
+        } else D.renderMessages(msg.id);
+        if (msg.sender === 'user') pinned = true;
+        if (pinned) scrollToBottom(); else $('jumpBtn').hidden = false;
       }
     } else if (msg.sender !== 'user' && msg.sender !== 'system') S.unread[msg.roomId] = (S.unread[msg.roomId] || 0) + 1;
     S.rooms.sort((a, b) => (b.last?.ts || b.createdAt) - (a.last?.ts || a.createdAt));
@@ -257,7 +264,14 @@
   };
   D.onUpdate = (msg) => {
     const i = S.messages.findIndex((m) => m.id === msg.id);
-    if (i >= 0 && msg.roomId === S.roomId) { S.messages[i] = msg; D.renderMessages(); }
+    if (i < 0 || msg.roomId !== S.roomId) return;
+    S.messages[i] = msg;
+    const old = nodes.get(msg.id);
+    if (!old?.isConnected) return D.renderMessages();
+    const el = renderOne(msg, currentRoom(), false);
+    nodes.set(msg.id, el);
+    old.replaceWith(el);
+    if (pinned) scrollToBottom();
   };
 
   const STAGE_NAMES = ['브리프', '발산', '방향', '시안', '완료'];
@@ -282,17 +296,23 @@
   };
 
   // ── 메시지 ───────────────────────────────────
+  const nodes = new Map(); // 메시지 id → 화면 요소
   D.renderMessages = (newId) => {
     const room = currentRoom();
     const box = $('messages');
+    const top = box.scrollTop;
+    nodes.clear();
     const frag = document.createDocumentFragment();
     const col = h('div', { class: 'thread' });
     if (!S.messages.length && room) col.append(h('div', { class: 'thread-empty' }, room.members.length > 1 ? `${room.members.map(D.name).join(', ')}와 함께하는 대화입니다.` : `${D.name(room.members[0])}와 대화를 시작하세요.`));
-    for (const m of S.messages) col.append(renderOne(m, room, m.id === newId));
+    for (const m of S.messages) { const el = renderOne(m, room, m.id === newId); nodes.set(m.id, el); col.append(el); }
     col.append(h('div', { id: 'typingRows' }));
     frag.append(col);
     box.replaceChildren(frag);
-    D.renderTyping();
+    typingRows.clear();
+    drawTyping();
+    // 다시 그려도 보던 위치를 지킨다.
+    if (pinned) box.scrollTop = box.scrollHeight; else box.scrollTop = top;
   };
 
   function renderOne(m, room, isNew) {
@@ -448,32 +468,66 @@
   }
 
   // 진행 중: 누가 무엇을 하는지 + 쓰고 있는 글
+  // 글이 들어올 때마다 통째로 다시 그리면 스크롤이 끊기므로, 한 프레임에 한 번만, 바뀐 부분만 고친다.
+  const typingRows = new Map(); // agentId → { el, label, body, text }
+  let typingQueued = false;
   D.renderTyping = () => {
+    if (typingQueued) return;
+    typingQueued = true;
+    requestAnimationFrame(() => { typingQueued = false; drawTyping(); });
+  };
+  function drawTyping() {
     const holder = $('typingRows');
     if (!holder) return;
-    const set = S.typing[S.roomId];
-    holder.replaceChildren();
-    if (!set?.size) return;
-    const stick = nearBottom();
+    const set = S.typing[S.roomId] || new Set();
+    for (const [id, row] of typingRows) if (!set.has(id) || !row.el.isConnected) { row.el.remove(); typingRows.delete(id); }
     for (const id of set) {
       const act = S.activity[S.roomId]?.[id];
-      const live = act?.text?.trim();
-      holder.append(h('div', { class: 'msg-ai working' },
-        h('div', { class: 'ai-head' }, D.avatarEl(D.agent(id), 'xs'), h('b', {}, D.name(id)), h('span', { class: 'working-label' }, h('span', { class: 'pulse' }), act?.label || '생각 중')),
-        live ? h('div', { class: 'ai-body live', html: D.markdown(live.length > 900 ? `…${live.slice(-900)}` : live) }) : null));
+      let row = typingRows.get(id);
+      if (!row) {
+        const label = h('span', {}, '');
+        const body = h('div', { class: 'ai-body live', hidden: true });
+        const el = h('div', { class: 'msg-ai working' },
+          h('div', { class: 'ai-head' }, D.avatarEl(D.agent(id), 'xs'), h('b', {}, D.name(id)), h('span', { class: 'working-label' }, h('span', { class: 'pulse' }), label)),
+          body);
+        row = { el, label, body, text: null };
+        typingRows.set(id, row);
+        holder.append(el);
+      }
+      const labelText = act?.label || '생각 중';
+      if (row.label.textContent !== labelText) row.label.textContent = labelText;
+      const live = act?.text?.trim() || '';
+      if (live !== row.text) {
+        row.text = live;
+        row.body.hidden = !live;
+        if (live) row.body.innerHTML = D.markdown(live.length > 900 ? `…${live.slice(-900)}` : live);
+      }
     }
-    if (stick) scrollToBottom(true);
-  };
+    if (pinned) { const b = $('messages'); b.scrollTop = b.scrollHeight; }
+  }
 
-  const nearBottom = () => { const b = $('messages'); return b.scrollHeight - b.scrollTop - b.clientHeight < 160; };
-  function scrollToBottom(smooth) {
+  // 맨 아래를 따라갈지: 사용자가 위로 올리면 멈추고, 다시 맨 아래로 내려오면 따라간다.
+  let pinned = true;
+  let lastTop = 0;
+  const fromBottom = () => { const b = $('messages'); return b.scrollHeight - b.scrollTop - b.clientHeight; };
+  let userAt = 0; // 사용자가 직접 스크롤을 건드린 시각 (이 직후에는 맨 아래로 끌어당기지 않는다)
+  function scrollToBottom(smooth = false) {
+    pinned = true;
     requestAnimationFrame(() => {
       const b = $('messages');
       b.scrollTo({ top: b.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
       $('jumpBtn').hidden = true;
     });
   }
-  $('messages').addEventListener('scroll', () => { if (nearBottom()) $('jumpBtn').hidden = true; }, { passive: true });
+  $('messages').addEventListener('scroll', () => {
+    const b = $('messages');
+    const d = fromBottom();
+    if (d < 40) { if (performance.now() - userAt > 400) pinned = true; } else if (b.scrollTop < lastTop - 2) pinned = false;
+    lastTop = b.scrollTop;
+    if (d < 160) $('jumpBtn').hidden = true;
+  }, { passive: true });
+  $('messages').addEventListener('wheel', (e) => { if (e.deltaY < 0) { pinned = false; userAt = performance.now(); } }, { passive: true });
+  $('messages').addEventListener('touchmove', () => { userAt = performance.now(); if (fromBottom() >= 40) pinned = false; }, { passive: true });
   $('jumpBtn').addEventListener('click', () => scrollToBottom(true));
 
   // ── 답장 · 첨부 ──────────────────────────────
