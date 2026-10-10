@@ -73,7 +73,7 @@ function createApp({
   const skills = new Skills(dataDir, workspace);
   skills.prune();
   skills.writeFiles();
-  const orch = new Orchestrator({ store, profiles, memory, plugins, engines, bus, workspace, evals, skills, now });
+  const orch = new Orchestrator({ store, profiles, memory, plugins, engines, bus, workspace, evals, skills, connections, now });
 
   // 과거 대화 원문을 AI가 검색할 수 있도록 방마다 마크다운으로 남긴다.
   bus.on('message', (m) => {
@@ -232,7 +232,7 @@ function createApp({
       case 'me':
         return json(res, 200, {
           user: profiles.user, account: auth.account, agents: profiles.agents(), settings: profiles.settings,
-          team: { commands: team.COMMANDS, tones: team.TONES, taskOptions: team.TASK_OPTIONS.map(({ id, label }) => ({ id, label })) },
+          team: { plan: await orch.teamPlan().catch(() => ({})), commands: team.COMMANDS, tones: team.TONES, taskOptions: team.TASK_OPTIONS.map(({ id, label }) => ({ id, label })) },
           options: { personalities: PERSONALITIES, permissions: PERMISSIONS, models: MODELS, efforts: EFFORTS, templates: PERSONA_TEMPLATES, studioRoles: STUDIO_ROLES },
           tunnel: tunnel.state,
         });

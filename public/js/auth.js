@@ -175,7 +175,23 @@
     const go = h('button', { class: 'btn-primary', type: 'button', onclick: async () => {
       go.disabled = true;
       go.textContent = '팀을 꾸리는 중…';
+      // 진행 상황: 지금 하는 일과 지난 시간을 보여 준다 (AI 호출 1회라 실제 단계는 서버가 알려 주지 않는다).
+      const STEPS = ['답변을 읽고 있어요', '역할 6명의 페르소나를 맞추고 있어요', '바로 시작할 작업 3개를 고르고 있어요', '거의 다 됐어요. 조금만 기다려 주세요'];
+      const t0 = Date.now();
+      const label = h('span', {}, STEPS[0]);
+      const clock = h('span', { class: 'onb-clock' }, '0초');
+      const prog = h('div', { class: 'onb-progress', role: 'status', 'aria-live': 'polite' },
+        h('div', { class: 'onb-bar' }, h('i', {})), h('div', { class: 'onb-progress-row' }, label, clock),
+        h('div', { class: 'onb-progress-sub' }, 'AI가 한 번 답하는 동안 기다립니다. 길면 1분쯤 걸릴 수 있어요.'));
+      go.closest('.onb-actions').before(prog);
+      const tick = setInterval(() => {
+        const sec = Math.round((Date.now() - t0) / 1000);
+        clock.textContent = `${sec}초`;
+        label.textContent = STEPS[Math.min(STEPS.length - 1, Math.floor(sec / 8))];
+      }, 1000);
       const r = await safe(api('POST', '/api/onboarding', { answers: a }));
+      clearInterval(tick);
+      prog.remove();
       go.disabled = false;
       go.textContent = '내 팀 만들기';
       if (r) stepDone(root, r);

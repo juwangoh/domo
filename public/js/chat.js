@@ -12,11 +12,14 @@
   const replyBar = h('div', { class: 'reply-bar', hidden: true });
   const aiChip = h('button', { class: 'tool-chip', type: 'button', onclick: () => aiPicker() });
   const teamChip = h('button', { class: 'tool-chip only-desktop', type: 'button', onclick: () => teamMenu() }, D.icon.spark(15), h('span', {}, '팀', h('span', { class: 'long' }, ' 서비스')));
+  const COMMAND_PREFIX = { critique: '/크리틱 ', concept: '/컨셉 ', research: '/리서치 ', verify: '/검증', compare: '/비교 ' };
+  // 팀 서비스를 보내기 전에 AI 몇 명이 몇 번 호출되는지 보여 준다.
+  const planHint = h('div', { class: 'plan-hint', hidden: true });
   const attachInput = h('input', { type: 'file', accept: 'image/*,application/pdf,text/plain,text/markdown,.md,.csv', multiple: true, hidden: true, onchange: (e) => { for (const f of e.target.files) addAttachment(f); e.target.value = ''; } });
   const composer = h('form', { class: 'composer', onsubmit: (e) => { e.preventDefault(); currentRoom()?.running ? stop() : send(); } },
     replyBar, tray,
     h('div', { class: 'composer-box' },
-      input,
+      input, planHint,
       h('div', { class: 'composer-row' },
         h('button', { class: 'icon-btn plus-btn only-mobile', type: 'button', 'aria-label': '첨부와 팀 서비스', onclick: () => plusMenu() }, D.icon.plus(22)),
         h('button', { class: 'icon-btn only-desktop', type: 'button', 'aria-label': '파일·이미지 첨부', onclick: () => attachInput.click() }, D.icon.clip(19)),
@@ -49,6 +52,17 @@
     aiChip.replaceChildren(a ? D.avatarEl(a, 'xs') : '', h('span', {}, a ? [a.name, h('span', { class: 'long' }, ` · ${D.modelLabel(a)}`)] : 'AI 선택'), D.icon.chevron(14));
     const cmd = input.value.match(/^\s*\/(\S+)/)?.[1];
     teamChip.classList.toggle('on', !!cmd);
+    const id = cmd && Object.keys(COMMAND_PREFIX).find((k) => COMMAND_PREFIX[k].trim() === `/${cmd}`);
+    const plan = id && S.me.team.plan?.[id];
+    planHint.hidden = !plan;
+    if (plan) {
+      planHint.replaceChildren(...[
+        h('b', {}, S.me.team.commands[id].label),
+        h('span', {}, `AI ${plan.agents}명 · 호출 ${plan.approx ? '약 ' : ''}${plan.calls}회 · ${plan.models.join(', ')}`),
+        plan.note ? h('span', { class: 'plan-note' }, plan.note) : null,
+        h('span', { class: 'plan-sub' }, '내 구독 한도에서 차감됩니다'),
+      ].filter(Boolean));
+    }
   };
 
   // 지금 대화하는 AI: 대화방이면 방의 첫 AI, 빈 화면이면 기본 AI
@@ -126,7 +140,6 @@
     if (!D.coarse) setTimeout(() => input.focus(), 30);
   };
 
-  const COMMAND_PREFIX = { critique: '/크리틱 ', concept: '/컨셉 ', research: '/리서치 ', verify: '/검증', compare: '/비교 ' };
   const COMMAND_HINT = {
     critique: '작업 사진이나 PDF를 첨부하고 설명을 적어 주세요. 교수님 기준표가 있으면 "기준:" 아래에 적어 주세요.',
     concept: '주제와 지금 막힌 지점을 적어 주세요. 팀이 먼저 내 1차 가설을 물어봅니다.',

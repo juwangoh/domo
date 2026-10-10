@@ -109,6 +109,15 @@ class Memory {
 
   principlesText() { return principleList(this.data.principles); }
 
+  // 사용자가 누구이고 지금 무엇을 하는지 (팀 지시서에 직접 넣는 용도)
+  aboutText() {
+    const d = this.data;
+    const lines = d.user.slice(-20).map((x) => `- ${x.text}`);
+    for (const p of d.projects.filter((x) => x.status !== '완료').slice(-5)) lines.push(`- 진행 중: ${p.name}${p.desc ? ` — ${p.desc}` : ''}`);
+    for (const t of d.tasks.filter((x) => x.status !== 'done' && x.due).slice(0, 5)) lines.push(`- 기한 ${t.due}: ${t.title}`);
+    return lines.join('\n').slice(0, 2000);
+  }
+
   // Hermes 의 ~/.hermes/memories/USER.md, MEMORY.md 를 가져온다 (§ 로 항목 구분)
   importHermes(hermesDir) {
     const read = (f) => { try { return fs.readFileSync(path.join(hermesDir, 'memories', f), 'utf8'); } catch { return ''; } };

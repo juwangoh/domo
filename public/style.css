@@ -529,3 +529,18 @@ button.list-row:hover, .row-main:hover { background: var(--fill); }
   .list-row { min-height: 56px; }
   .menu-item { padding: 14px 16px; }
 }
+
+/* 팀 서비스 예상 호출 수 · 온보딩 진행 표시 */
+.plan-hint { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin: 6px 0 8px; padding: 8px 10px; border-radius: 10px; background: var(--fill); font-size: 12.5px; line-height: 1.5; }
+.plan-hint[hidden] { display: none; }
+.plan-hint b { font-weight: 600; }
+.plan-hint .plan-note { color: var(--amber); }
+.plan-hint .plan-sub { color: var(--ink-3); margin-left: auto; }
+.onb-progress { margin: 14px 0 4px; }
+.onb-bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.onb-bar i { display: block; width: 35%; height: 100%; border-radius: 2px; background: var(--accent-line); animation: onb-slide 1.4s ease-in-out infinite; }
+@keyframes onb-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .onb-bar i { animation: none; width: 100%; opacity: 0.5; } }
+.onb-progress-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 13.5px; }
+.onb-clock { font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.onb-progress-sub { margin-top: 2px; font-size: 12.5px; color: var(--ink-3); }

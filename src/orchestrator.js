@@ -7,7 +7,7 @@
 //  · 1:1(chat):     한 AI가 답한다
 // 루프 방지: 범위 확장 금지, 2라운드부터는 이견 있는 AI만 발언, 감사는 지난 지적 확인만, 과반 합의 시 종료.
 // 대화가 끝나면 기억 정리 AI가 내 정보·프로젝트·과제를 장기 기억에 반영한다.
-const { PERSONALITIES, PERMISSIONS, STUDIO_ROLES, PERSONA_TEMPLATES, soulFor } = require('./profiles');
+const { PERSONALITIES, PERMISSIONS, MODELS, STUDIO_ROLES, PERSONA_TEMPLATES, soulFor } = require('./profiles');
 const { localDate } = require('./scheduler');
 const studio = require('./studio');
 const team = require('./team');
@@ -22,7 +22,8 @@ const MODES = ['studio', 'work', 'meeting', 'review', 'chat'];
 const ASSIGN_RE = /^\s*[-*•]?\s*@?([^:：\n]{1,20}?)\s*[:：]\s*(.+)$/;
 
 class Orchestrator {
-  constructor({ store, profiles, memory, plugins, engines, bus, workspace, evals = null, skills = null, now = () => new Date() }) {
+  constructor({ store, profiles, memory, plugins, engines, bus, workspace, evals = null, skills = null, connections = null, now = () => new Date() }) {
+    this.connections = connections;
     this.evals = evals;
     this.skills = skills;
     this.store = store;
@@ -190,12 +191,61 @@ class Orchestrator {
     return { verdict, body };
   }
 
-  async teamService(cmd, room, crew, job, text) {
+  // 연결(로그인)된 AI 인지 알려 주는 함수를 만든다. 연결 상태를 모르는 엔진(테스트용 등)은 쓸 수 있다고 본다.
+  async readyCheck({ wait = true } = {}) {
+    const st = wait ? await this.connections?.status().catch(() => null) : this.connections?.peek(() => this.bus.emit('agents', {}));
+    return (a) => !!a && (!st?.[a.engine] || !!st[a.engine].loggedIn);
+  }
+
+  // 팀 서비스에서 누가 무엇을 맡는지. 연결되지 않은 AI 는 빼고, 검증을 맡을 다른 AI 가 없으면 verifier 는 null 이다.
+  cast(crew, primaryId, ready) {
     const R = this.roles(crew);
-    const A = (id) => (id ? this.agents[id] : null);
-    const primary = this.agents[room.members[0]] || A(R.producer) || A(R.pm);
-    const codex = Object.values(this.agents).find((a) => a.engine === 'codex');
-    const verifier = A(R.verifier) || codex || primary;
+    const A = (id) => (id && ready(this.agents[id]) ? this.agents[id] : null);
+    const primary = A(primaryId) || A(R.producer) || A(R.pm) || this.agents[primaryId] || this.agents[R.pm];
+    const codex = Object.values(this.agents).find((a) => a.engine === 'codex' && ready(a)) || null;
+    const researcher = A(R.research) || primary;
+    const verifier = A(R.verifier) || codex;
+    return { R, A, primary, codex, researcher, verifier: verifier && verifier.id !== researcher.id ? verifier : null, verifierAny: verifier };
+  }
+
+  // 검증을 건너뛰는 이유 (결과물에 그대로 찍는다)
+  skipReason(crew) {
+    const v = this.agents[this.roles(crew).verifier] || Object.values(this.agents).find((a) => a.engine === 'codex');
+    return v?.engine === 'codex' ? 'Codex 미연결' : '검증을 맡을 다른 AI 없음';
+  }
+
+  // 팀 서비스를 시작하기 전에 보여 줄 예상: AI 몇 명이 몇 번 호출되고 어떤 모델을 쓰는지.
+  async teamPlan() {
+    const ready = await this.readyCheck({ wait: false });
+    const crew = this.teamIds();
+    const primaryId = this.profiles.settings.primaryAgent || crew[0];
+    const c = this.cast(crew, primaryId, ready);
+    const skip = this.skipReason(crew);
+    const modelOf = (a) => MODELS[a.engine]?.find((m) => m.id === (a.model || ''))?.label.replace('기본값', a.engine === 'codex' ? 'Codex 기본 모델' : 'Claude 기본 모델') || a.model;
+    const plan = (list, extra = {}) => {
+      const agents = list.filter(Boolean);
+      const uniq = [...new Map(agents.map((a) => [a.id, a])).values()];
+      return { calls: agents.length, agents: uniq.length, models: [...new Set(uniq.map(modelOf))], ...extra };
+    };
+    const lead = c.A(c.R.pm) || c.primary;
+    const critic = c.A(c.R.critic);
+    const concept = c.A(c.R.concept);
+    const second = c.codex && c.codex.id !== c.primary.id ? c.codex : Object.values(this.agents).find((a) => a.id !== c.primary.id && ready(a)) || c.primary;
+    const joiner = (critic || lead).id !== c.primary.id ? (critic || lead) : c.primary;
+    return {
+      critique: plan([critic || c.primary, concept || critic || c.primary, c.codex || critic || c.primary, lead]),
+      research: plan([c.researcher, c.verifier], c.verifier ? {} : { note: `교차 검증 생략 (${skip})` }),
+      verify: plan([c.verifierAny || c.primary], c.verifierAny ? {} : { note: `${skip} · 같은 회사 모델이 대신 확인` }),
+      compare: plan([c.primary, c.primary, second, joiner]),
+      // 가설 질문 → 발산 2 → 채점 2 → 결정 카드 → 시안 → 검토 2 → 정리. 고칠 때마다 2회쯤 더 든다.
+      concept: plan([lead, c.researcher, concept || lead, critic, c.A(c.R.verifier), lead, c.A(c.R.producer) || c.primary, critic, c.A(c.R.verifier), lead], { approx: true, note: '끝까지 진행할 때 기준 · 수정 요청마다 2회쯤 추가' }),
+    };
+  }
+
+  async teamService(cmd, room, crew, job, text) {
+    const ready = await this.readyCheck();
+    const { R, A, primary, codex, researcher, verifier, verifierAny } = this.cast(crew, room.members[0], ready);
+    const skip = this.skipReason(crew);
     const request = team.stripCommand(text);
     const principles = this.memory.principlesText ? this.memory.principlesText() : '';
     const lastUser = [...this.store.messages(room.id)].reverse().find((m) => m.sender === 'user');
@@ -225,12 +275,16 @@ class Orchestrator {
     }
 
     if (cmd === 'research') {
-      const researcher = A(R.research) || primary;
-      this.post(room.id, 'system', `데스크리서치 · ${researcher.name}가 조사하고 ${verifier.name}가 교차 검증합니다`, { kind: 'stage', team: 'research' });
-      const facts = await this.ask(room, researcher, job, team.prompts.facts({ request, principles }));
+      this.post(room.id, 'system', verifier
+        ? `데스크리서치 · ${researcher.name}가 조사하고 ${verifier.name}가 교차 검증합니다`
+        : `데스크리서치 · ${researcher.name}가 조사합니다 · 교차 검증은 생략됩니다 (${skip})`, { kind: 'stage', team: 'research' });
+      const facts = await this.ask(room, researcher, job, team.prompts.facts({ request, principles, about: this.memory.aboutText?.() || '' }));
       if (!facts) return;
-      this.post(room.id, researcher.id, facts.text, this.teamMeta(researcher, facts, { team: 'research', label: '팩트시트' }));
-      if (verifier.id === researcher.id) return;
+      this.post(room.id, researcher.id, facts.text, this.teamMeta(researcher, facts, { team: 'research', label: verifier ? '팩트시트' : `팩트시트 · 검증 생략됨(${skip})`, unverified: !verifier }));
+      if (!verifier) {
+        this.post(room.id, 'system', `교차 검증 생략됨 (${skip}) · 위 팩트시트는 다른 AI가 확인하지 않았습니다.${skip === 'Codex 미연결' ? ' 설정 → AI 연결에서 ChatGPT를 연결하면 다음부터 교차 검증합니다.' : ''}`, { kind: 'limit', team: 'research' });
+        return;
+      }
       const chk = await this.ask(room, verifier, job, team.prompts.crosscheck({ request, facts: facts.text }));
       if (!chk) return;
       const { verdict, body } = this.splitVerdict(chk.text);
@@ -242,10 +296,12 @@ class Orchestrator {
       const target = [...this.store.messages(room.id)].reverse().find((m) => m.sender !== 'user' && m.sender !== 'system' && m.meta?.kind !== 'compare');
       if (!target) { this.post(room.id, 'system', '검증할 AI 답이 아직 없습니다. 먼저 질문해 주세요.', { kind: 'limit' }); return; }
       const question = [...this.store.messages(room.id)].reverse().find((m) => m.sender === 'user' && m.id < target.id)?.text || '';
-      const res = await this.ask(room, verifier, job, team.prompts.verify({ question, answer: target.text }));
+      const checker = verifierAny || primary;
+      if (!verifierAny) this.post(room.id, 'system', `사실 검증 · ${skip}이라 ${checker.name}가 대신 확인합니다. 같은 회사 모델이라 독립 검증은 아닙니다.`, { kind: 'stage', team: 'verify' });
+      const res = await this.ask(room, checker, job, team.prompts.verify({ question, answer: target.text }));
       if (!res) return;
       const { verdict, body } = this.splitVerdict(res.text);
-      this.post(room.id, verifier.id, body, this.teamMeta(verifier, res, { team: 'verify', label: '사실 검증', verdict: verdict || 'revise', replyTo: target.id }));
+      this.post(room.id, checker.id, body, this.teamMeta(checker, res, { team: 'verify', label: verifierAny ? '사실 검증' : '사실 검증 · 같은 회사 모델', verdict: verdict || 'revise', replyTo: target.id }));
       return;
     }
 
@@ -511,6 +567,10 @@ class Orchestrator {
     const P = room.project;
     const R = this.roles(members);
     const A = (id) => (id ? this.agents[id] : null);
+    // 연결되지 않은 검증 담당은 빼고, 뺐다는 사실을 단계 안내에 적는다.
+    const ready = await this.readyCheck();
+    const noVerify = R.verifier && !ready(A(R.verifier)) ? ` · 검증 생략됨(${this.skipReason(members)})` : '';
+    if (noVerify) R.verifier = null;
     const principles = () => this.memory.principlesText();
     const solo = (id, phase, extra = {}) => (id ? this.soloTurn(room, A(id), job, phase, studio.prompts[phase](P, { principles: principles() }), extra) : Promise.resolve(null));
 
@@ -522,7 +582,7 @@ class Orchestrator {
       const [facts, directions] = await Promise.all([solo(R.research, 'facts'), solo(R.concept, 'directions')]);
       if (!directions) return;
       Object.assign(P.docs, { facts, directions });
-      this.post(room.id, 'system', `크리틱 · ${[A(R.critic)?.name, A(R.verifier)?.name].filter(Boolean).join('·') || A(R.pm).name}가 내 기준으로 채점합니다`, { kind: 'stage' });
+      this.post(room.id, 'system', `크리틱 · ${[A(R.critic)?.name, A(R.verifier)?.name].filter(Boolean).join('·') || A(R.pm).name}가 내 기준으로 채점합니다${noVerify}`, { kind: 'stage' });
       const [critique, verify] = await Promise.all([solo(R.critic, 'critique'), solo(R.verifier, 'verify')]);
       Object.assign(P.docs, { critique, verify });
       const decision = await solo(R.pm, 'decision');

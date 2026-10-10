@@ -52,6 +52,19 @@ class Connections {
     return value;
   }
 
+  // 기다리지 않고 마지막으로 확인한 상태를 돌려준다 (없으면 null). 오래됐으면 뒤에서 다시 확인하고 onFresh 로 알린다.
+  peek(onFresh) {
+    if (this.fake) return this.fake;
+    if ((!this.cache || Date.now() - this.cache.at >= CACHE_MS) && !this.peeking) {
+      const before = JSON.stringify(this.cache?.value || null);
+      this.peeking = this.status({ refresh: true })
+        .then((v) => { if (JSON.stringify(v) !== before) onFresh?.(v); })
+        .catch(() => {})
+        .finally(() => { this.peeking = null; });
+    }
+    return this.cache?.value || null;
+  }
+
   invalidate() { this.cache = null; }
 }
 
