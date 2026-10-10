@@ -4,29 +4,28 @@
 
 ## 시작하기
 
-DOMO는 각자 자기 환경에서 띄우고, 자기 Claude·Codex 구독으로 로그인해서 씁니다. DOMO는 AI 계정 정보를 보관하지 않습니다.
+**앱으로 설치 (권장)**: [다운로드 페이지](https://juwangoh.github.io/domo/#start)에서 Windows용 `.exe` 또는 Mac용 `.dmg`를 받아 엽니다. 앱 안에서 "연결하기" 버튼을 누르면 Claude·Codex 설치와 로그인까지 이어서 진행됩니다. 터미널은 필요 없습니다.
 
-**GitHub Codespaces (Mac 없이 브라우저만으로)**
-1. 저장소에서 Code → Codespaces → Create codespace
-2. 터미널에서 `claude auth login` → 브라우저에서 본인 Claude 계정으로 로그인
-3. (선택) `codex login` → 본인 ChatGPT 계정으로 로그인
-4. `npm start` → 포트 탭의 3939 주소를 열고 회원가입 → 온보딩
+- 본인 Claude·ChatGPT 구독으로 로그인해서 씁니다. DOMO는 AI 계정 정보를 보관하지 않습니다.
+- 서명하지 않은 무료 배포라 처음 열 때 확인 창이 한 번 뜹니다. 넘기는 방법은 다운로드 페이지에 있습니다.
+- 대화와 기억은 앱 데이터 폴더에, 첨부와 대화기록은 `문서/DOMO`에 저장됩니다.
+- 창을 닫아도 트레이(메뉴 막대)에 남아 폰 접속과 예약 작업이 계속됩니다. 종료와 "컴퓨터를 켤 때 자동으로 실행"은 트레이 메뉴에 있습니다.
 
-**내 Mac에서**
+**터미널로 직접 실행 (개발용, Node 20 이상)**
 ```bash
-npm install -g @anthropic-ai/claude-code @openai/codex
-claude auth login        # 본인 Claude 계정
-codex login              # (선택) 본인 ChatGPT 계정
-git clone <저장소 주소> domo && cd domo
-npm start                # http://localhost:3939 → 회원가입
+git clone https://github.com/juwangoh/domo.git && cd domo
+npm start                # http://localhost:3939 → 회원가입 → "연결하기" 버튼
 ```
-
-다른 기기(폰 등)에서 처음 가입할 때는 서버 터미널에 찍힌 6자리 설정 코드가 필요합니다.
+GitHub Codespaces에서는 버튼 대신 터미널에서 `claude auth login`, `codex login`을 실행합니다. 다른 기기(폰 등)에서 처음 가입할 때는 서버 터미널에 찍힌 6자리 설정 코드가 필요합니다.
 
 ```bash
 npm run demo   # 요금 없는 체험용 mock AI (http://localhost:3940)
 npm test       # 자동 테스트 (mock, 요금 없음)
+npm install && npm run app    # 데스크톱 앱을 개발 모드로 실행
+npm run dist                  # 내 컴퓨터용 설치 파일 만들기 (dist/)
 ```
+
+**배포**: `v1.0.0` 같은 버전 태그를 푸시하면 GitHub Actions가 Mac·Windows 설치 파일을 만들어 Releases에 올리고, 다운로드 페이지의 버튼이 최신 버전을 가리킵니다.
 
 ## 쓰는 법
 

@@ -8,6 +8,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
+if (process.platform !== 'darwin') {
+  console.log('이 명령은 macOS 전용입니다. Windows 에서는 DOMO 앱의 트레이 메뉴에서 "컴퓨터를 켤 때 자동으로 실행"을 켜세요.');
+  process.exit(0);
+}
+
 const LABEL = 'com.aitalk.server';
 const root = path.join(__dirname, '..');
 const plist = path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);

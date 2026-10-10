@@ -111,6 +111,11 @@ img { display: block; }
 .conn-dot.ok { background: var(--green); }
 .conn-state { margin-left: auto; font-size: 13px; color: var(--ink-2); }
 .conn-how { margin-top: 10px; font-size: 14px; color: var(--ink-2); display: grid; gap: 8px; }
+.conn-dot.busy { animation: breathe 1.2s ease-in-out infinite; }
+.conn-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.conn-code { display: flex; gap: 8px; align-items: center; }
+.conn-code .auth-input { flex: 1; min-width: 0; }
+.conn-error { color: var(--red); }
 .cmd { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--ink); color: var(--bg); text-align: left; }
 .cmd code { font: 14px var(--mono); overflow-wrap: anywhere; }
 

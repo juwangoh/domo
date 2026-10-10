@@ -65,6 +65,11 @@
     .open-form { display: flex; gap: 8px; flex-wrap: wrap; }
     .open-form input { flex: 1; min-width: 220px; min-height: 46px; padding: 0 16px; border-radius: 999px; border: 0; background: #fffdf9; box-shadow: inset 0 0 0 1px var(--line-2); font: inherit; font-size: 16px; color: var(--ink); outline: none; }
     .open-form input:focus { box-shadow: inset 0 0 0 2px var(--accent-line); }
+    .actions-row { display: flex; flex-wrap: wrap; gap: 10px; }
+    h3 { font: 600 20px/1.3 var(--serif); margin: 40px 0 8px; }
+    .more { margin-top: 28px; }
+    .more summary { cursor: pointer; color: var(--ink-2); font-size: 15px; min-height: 44px; display: flex; align-items: center; }
+    .more .steps { margin-top: 8px; }
     .note { font-size: 13px; color: var(--ink-3); margin-top: 12px; }
     footer { padding: 36px 0 48px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13px; text-align: center; }
     [hidden] { display: none !important; }
@@ -82,7 +87,7 @@
       <a class="brand" href="./"><img src="mark-ink.svg" alt="" width="26" height="26">DOMO</a>
       <nav class="top-links">
         <a class="btn ghost small hide-sm" href="#how">사용법</a>
-        <a class="btn dark small" href="#start">내 DOMO 만들기</a>
+        <a class="btn dark small" href="#start">내려받기</a>
       </nav>
     </header>
 
@@ -91,7 +96,7 @@
       <h1>DOMO</h1>
       <p class="lead">디자인 전공생을 위한 AI 스튜디오. 평소에는 AI 한 명이 빠르게 답하고, 크리틱·컨셉·리서치·검증이 필요할 때만 팀이 함께 일합니다.</p>
       <div class="actions">
-        <a class="btn dark" href="#start">회원가입하고 시작하기</a>
+        <a class="btn dark" href="#start">DOMO 내려받기</a>
         <a class="btn ghost" href="#open">이미 내 DOMO가 있어요</a>
       </div>
     </div>
@@ -124,22 +129,38 @@
 
   <section id="start">
     <div class="wrap">
-      <h2>내 DOMO 만들기</h2>
-      <p class="sub">DOMO는 각자 자기 환경에서 띄우고, 본인 Claude·Codex 구독으로 로그인해서 씁니다. 로그인 정보는 공식 앱이 각자의 환경 안에서만 관리하고, DOMO는 AI 계정 정보를 보관하지 않습니다. 회원가입은 내 DOMO를 처음 열 때 첫 화면에서 합니다.</p>
-      <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="true" data-tab="cs">브라우저만으로 (Codespaces)</button>
-        <button role="tab" aria-selected="false" data-tab="mac">내 Mac에서</button>
+      <h2>DOMO 설치하기</h2>
+      <p class="sub">앱을 내려받아 열고, 버튼을 눌러 본인 Claude·ChatGPT 계정으로 로그인하면 끝입니다. 터미널은 필요 없어요. 로그인 정보는 각 공식 앱이 내 컴퓨터 안에서만 관리하고, DOMO는 AI 계정 정보를 보관하지 않습니다.</p>
+      <div class="actions-row">
+        <a class="btn dark" id="dlWin" href="https://github.com/juwangoh/domo/releases/latest/download/DOMO-windows.exe">Windows용 내려받기</a>
+        <a class="btn dark" id="dlMac" href="https://github.com/juwangoh/domo/releases/latest/download/DOMO-mac.dmg">Mac용 내려받기</a>
       </div>
-      <div class="steps" data-panel="cs">
-        <div class="step"><div><b>Codespace 열기</b><p>GitHub 계정으로 내 전용 DOMO 환경을 만듭니다. 무료 사용량 안에서 쓸 수 있어요.</p><p style="margin-top:12px"><a id="csLink" class="btn apricot" href="https://codespaces.new/juwangoh/domo?quickstart=1" target="_blank" rel="noopener">Codespace에서 DOMO 열기</a></p></div></div>
-        <div class="step"><div><b>본인 AI 계정으로 로그인</b><p>Codespace 아래 터미널에서 실행하고, 열리는 페이지에서 본인 계정으로 로그인합니다. Codex는 선택이에요.</p><button class="cmd" data-copy="claude auth login"><span>claude auth login</span><span>복사</span></button><button class="cmd" data-copy="codex login"><span>codex login</span><span>복사</span></button></div></div>
-        <div class="step"><div><b>DOMO 켜고 회원가입</b><p>실행한 뒤 포트 탭의 3939 주소를 열면 회원가입 화면이 나옵니다. 가입하면 몇 가지 질문으로 내 팀을 맞춰 드려요.</p><button class="cmd" data-copy="npm start"><span>npm start</span><span>복사</span></button></div></div>
+      <p class="note">Claude는 유료 구독(Pro·Max)이 필요합니다. Codex(ChatGPT)는 선택이에요.</p>
+
+      <h3>처음 열 때 한 번만</h3>
+      <p class="sub">DOMO는 개인이 만든 무료 앱이라 처음 열 때 확인 창이 뜹니다. 아래대로 한 번만 넘기면 다음부터는 바로 열려요.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="win">Windows</button>
+        <button role="tab" aria-selected="false" data-tab="mac">Mac</button>
+      </div>
+      <div class="steps" data-panel="win">
+        <div class="step"><div><b>내려받은 DOMO-windows.exe 열기</b><p>브라우저가 "일반적으로 다운로드되지 않는 파일"이라고 하면 "유지"를 선택하세요.</p></div></div>
+        <div class="step"><div><b>파란 "Windows의 PC 보호" 창에서 "추가 정보" 누르기</b><p>이어서 나타나는 "실행" 버튼을 누르면 설치되고 DOMO가 열립니다.</p></div></div>
+        <div class="step"><div><b>"연결하기" 버튼으로 로그인</b><p>브라우저에 열린 창에서 본인 계정으로 로그인하면 자동으로 넘어갑니다.</p></div></div>
       </div>
       <div class="steps" data-panel="mac" hidden>
-        <div class="step"><div><b>AI 도구 설치</b><button class="cmd" data-copy="npm install -g @anthropic-ai/claude-code @openai/codex"><span>npm install -g @anthropic-ai/claude-code @openai/codex</span><span>복사</span></button></div></div>
-        <div class="step"><div><b>본인 AI 계정으로 로그인</b><button class="cmd" data-copy="claude auth login"><span>claude auth login</span><span>복사</span></button><button class="cmd" data-copy="codex login"><span>codex login</span><span>복사</span></button></div></div>
-        <div class="step"><div><b>DOMO 받고 켜기</b><button class="cmd" data-copy="git clone https://github.com/juwangoh/domo.git && cd domo && npm start"><span>git clone https://github.com/juwangoh/domo.git && cd domo && npm start</span><span>복사</span></button><p>브라우저로 http://localhost:3939 를 열면 회원가입 화면이 나옵니다.</p></div></div>
+        <div class="step"><div><b>DOMO-mac.dmg를 열고 DOMO를 응용 프로그램 폴더로 끌어 놓기</b></div></div>
+        <div class="step"><div><b>DOMO를 한 번 열어 보기</b><p>"확인되지 않은 개발자" 안내가 뜨면 "완료"를 누르세요.</p></div></div>
+        <div class="step"><div><b>시스템 설정 → 개인정보 보호 및 보안 → "그래도 열기"</b><p>화면 아래쪽 보안 항목에 DOMO가 보입니다. "그래도 열기"를 누르고 Mac 암호를 입력하면 열립니다.</p></div></div>
+        <div class="step"><div><b>"연결하기" 버튼으로 로그인</b><p>브라우저에 열린 창에서 본인 계정으로 로그인하면 자동으로 넘어갑니다.</p></div></div>
       </div>
+
+      <details class="more">
+        <summary>개발자용: 터미널로 직접 실행하기</summary>
+        <div class="steps">
+          <div class="step"><div><b>받아서 켜기 (Node 20 이상)</b><button class="cmd" data-copy="git clone https://github.com/juwangoh/domo.git && cd domo && npm start"><span>git clone https://github.com/juwangoh/domo.git && cd domo && npm start</span><span>복사</span></button><p>브라우저로 http://localhost:3939 를 열면 회원가입 화면이 나오고, AI 연결은 같은 버튼으로 진행합니다. 설치 없이 써 보려면 <a id="csLink" href="https://codespaces.new/juwangoh/domo?quickstart=1" target="_blank" rel="noopener">GitHub Codespaces</a>에서 열 수도 있어요.</p></div></div>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -157,6 +178,16 @@
   <footer><div class="wrap">DOMO · Claude Code + Codex 기반 · 디자인 전공생을 위한 AI 스튜디오</div></footer>
 
   <script>
+    // 내 컴퓨터에 맞는 내려받기 버튼을 앞에, 맞는 안내 탭을 먼저 보여 준다.
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    if (isMac) {
+      const mac = document.getElementById('dlMac');
+      mac.parentNode.prepend(mac);
+      document.getElementById('dlWin').className = 'btn ghost';
+      queueMicrotask(() => document.querySelector('[data-tab="mac"]').click());
+    } else {
+      document.getElementById('dlMac').className = 'btn ghost';
+    }
     // 탭 전환
     for (const b of document.querySelectorAll('.tabs button')) {
       b.addEventListener('click', () => {

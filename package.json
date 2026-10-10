@@ -3,16 +3,69 @@
   "version": "1.0.0",
   "description": "DOMO — 내 기준으로 일하는 AI 디자인 스튜디오 (Claude Code + Codex)",
   "private": true,
-  "main": "server.js",
+  "main": "desktop/main.js",
   "scripts": {
     "start": "node server.js",
     "demo": "AITALK_DEMO=1 PORT=3940 node server.js",
     "test": "node --test test/*.test.js",
     "password": "node scripts/set-password.js",
     "icons": "node scripts/make-icons.js",
-    "service": "node scripts/service.js"
+    "service": "node scripts/service.js",
+    "app": "electron .",
+    "dist": "electron-builder --publish never"
   },
   "engines": {
     "node": ">=20"
+  },
+  "author": "DOMO",
+  "build": {
+    "appId": "io.github.juwangoh.domo",
+    "productName": "DOMO",
+    "asar": false,
+    "files": [
+      "desktop/**",
+      "src/**",
+      "public/**",
+      "agents.json",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "desktop/build"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "identity": "-",
+      "artifactName": "DOMO-mac.${ext}",
+      "hardenedRuntime": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "DOMO-windows.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "DOMO"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
   }
 }

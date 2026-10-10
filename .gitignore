@@ -9,3 +9,4 @@ data/server.log
 node_modules/
 workspace/
 DESIGN.md
+dist/

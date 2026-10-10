@@ -7,7 +7,7 @@ const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const TAILSCALE_BINS = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', '/usr/bin/tailscale'];
+const TAILSCALE_BINS = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', '/usr/bin/tailscale', 'C:\\Program Files\\Tailscale\\tailscale.exe'];
 
 // macOS Tailscale 앱 실행 파일은 터미널이 아니면 GUI 로 뜨려고 한다. 이 값이 있어야 CLI 로 동작한다 (백그라운드 서비스용).
 const TS_ENV = { ...process.env, TAILSCALE_BE_CLI: '1' };
@@ -21,7 +21,7 @@ function run(bin, args, timeout = 15_000) {
 class Tunnel {
   constructor({ rootDir, dataDir, port, onChange, getProvider = () => 'auto', tailscaleBin, cloudflaredBin }) {
     this.cfBin = cloudflaredBin !== undefined ? cloudflaredBin
-      : [path.join(rootDir, 'bin', 'cloudflared'), '/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared'].find((p) => fs.existsSync(p)) || null;
+      : [path.join(rootDir, 'bin', 'cloudflared'), '/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared', 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe', 'C:\\Program Files\\cloudflared\\cloudflared.exe'].find((p) => fs.existsSync(p)) || null;
     this.tsBin = tailscaleBin !== undefined ? tailscaleBin : TAILSCALE_BINS.find((p) => fs.existsSync(p)) || null;
     this.urlFile = path.join(dataDir, 'tunnel-url.txt');
     this.port = port;

@@ -2,7 +2,7 @@
 // 플러그인 = Claude Code 의 MCP 서버. claude.ai 연결(노션·피그마 등) + 사이트에서 직접 추가한 서버.
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { runBin } = require('./bins');
 
 const CACHE_MS = 10 * 60 * 1000;
 
@@ -53,7 +53,7 @@ class Plugins {
   async list({ refresh = false } = {}) {
     if (!refresh && this.cache && Date.now() - this.cache.at < CACHE_MS) return this.cache.items;
     this.loading ||= new Promise((resolve) => {
-      execFile('claude', ['mcp', 'list'], { timeout: 60_000, cwd: path.dirname(this.file) }, (err, stdout) => {
+      runBin('claude', ['mcp', 'list'], { timeout: 60_000, cwd: path.dirname(this.file) }).then(({ stdout }) => {
         const items = [];
         for (const line of String(stdout || '').split('\n')) {
           const m = line.match(/^(.+?): (.+) - (✔|✗|!)\s*(.*)$/);

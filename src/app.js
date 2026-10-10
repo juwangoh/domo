@@ -16,6 +16,7 @@ const { Uploads } = require('./uploads');
 const { Push } = require('./push');
 const { engines: defaultEngines } = require('./engines');
 const { Connections } = require('./connections');
+const { AiSetup } = require('./setup');
 const { Evals } = require('./evals');
 const team = require('./team');
 const { Skills, ACTIVATE_AT, MAX_ACTIVE, ARCHIVE_DAYS } = require('./skills');
@@ -30,7 +31,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 function createApp({
   rootDir, dataDir, configPath, password, engines = defaultEngines, agentOverrides, port = 3939, pushFetch,
   hermesDir = path.join(os.homedir(), '.hermes'), enableScheduler = true, enableTunnel = true, now, workspace, tunnelBins = {},
-  connections: connectionsOpt,
+  connections: connectionsOpt, aiSetupCommands,
 } = {}) {
   rootDir ||= path.join(__dirname, '..');
   dataDir ||= path.join(rootDir, 'data');
@@ -68,6 +69,7 @@ function createApp({
   });
   const evals = new Evals(dataDir);
   const connections = connectionsOpt instanceof Connections ? connectionsOpt : new Connections(connectionsOpt || {});
+  const aiSetup = new AiSetup({ connections, commands: aiSetupCommands });
   const skills = new Skills(dataDir, workspace);
   skills.prune();
   skills.writeFiles();
@@ -196,6 +198,7 @@ function createApp({
     const isUpload = parts[2] === 'upload';
     const body = ['POST', 'PATCH', 'PUT'].includes(method) ? await readJson(req, isUpload ? 16_000_000 : 2_000_000) : {};
     const [head, id, sub, subId] = parts;
+    const canSetup = isLocal && !process.env.CODESPACES;
 
     switch (head) {
       case 'logout':
@@ -239,7 +242,18 @@ function createApp({
         break;
 
       case 'connections':
-        if (method === 'GET') return json(res, 200, { connections: await connections.status({ refresh: url.searchParams.has('refresh') }) });
+        if (method === 'GET') return json(res, 200, { connections: { ...await connections.status({ refresh: url.searchParams.has('refresh') }), canSetup } });
+        break;
+
+      // AI 연결 버튼: 설치(없을 때만) → 로그인을 이 컴퓨터에서 대신 실행한다. 브라우저가 이 컴퓨터에서 열리므로 로컬 접속에서만 허용한다.
+      case 'ai-setup':
+        if (method === 'GET') return json(res, 200, { setup: aiSetup.status(), canSetup });
+        if (method === 'POST' && id) {
+          if (!canSetup) return json(res, 403, { error: 'AI 연결은 DOMO가 설치된 컴퓨터에서 진행해 주세요.' });
+          const r = sub === 'connect' ? aiSetup.connect(id) : sub === 'code' ? aiSetup.submitCode(id, body.code) : sub === 'cancel' ? aiSetup.cancel(id) : null;
+          if (!r) break;
+          return r.error ? json(res, r.status || 400, { error: r.error }) : json(res, 200, { ok: true, setup: aiSetup.status() });
+        }
         break;
 
       case 'onboarding':
@@ -475,7 +489,7 @@ function createApp({
   });
   server.on('close', () => { scheduler.stop(); tunnel.shutdown(); });
 
-  return { server, store, auth, push, uploads, orch, profiles, memory, plugins, scheduler, tunnel, clients, evals, connections, skills };
+  return { server, store, auth, push, uploads, orch, profiles, memory, plugins, scheduler, tunnel, clients, evals, connections, skills, aiSetup };
 }
 
 function json(res, status, body) {

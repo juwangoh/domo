@@ -1,15 +1,10 @@
 'use strict';
 // AI 연결 상태: 이 DOMO가 돌고 있는 컴퓨터(내 Mac 또는 내 Codespace)의 공식 CLI에
 // 사용자가 "본인 구독"으로 로그인했는지 확인한다. DOMO는 로그인 정보를 다루지 않는다.
-const { execFile } = require('node:child_process');
+const { runBin } = require('./bins');
 
 const CACHE_MS = 30_000;
-
-function run(bin, args, timeout = 15_000) {
-  return new Promise((resolve) => {
-    execFile(bin, args, { timeout }, (err, stdout, stderr) => resolve({ err, stdout: String(stdout || ''), stderr: String(stderr || '') }));
-  });
-}
+const run = (bin, args) => runBin(bin, args, { timeout: 15_000 });
 
 async function claudeStatus(bin = 'claude') {
   const r = await run(bin, ['auth', 'status']);

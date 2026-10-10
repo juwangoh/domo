@@ -1,6 +1,6 @@
 'use strict';
 // 각 AI 엔진을 "프로세스 하나 실행 → 답변 텍스트 + 세션 ID" 형태로 통일한다.
-const { spawn } = require('node:child_process');
+const { spawnBin, killTree, WIN } = require('./bins');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -16,15 +16,15 @@ class EngineError extends Error {
   }
 }
 
-// 프로세스 그룹 단위로 실행해서, 중단 시 자식(도구 실행 등)까지 함께 종료한다.
+// 프로세스 그룹 단위로 실행해서, 중단 시 자식(도구 실행 등)까지 함께 종료한다. (Windows 는 taskkill 로 트리째 종료)
 function runProcess(cmd, args, { input = '', cwd, signal, timeoutMs = DEFAULT_TIMEOUT_MS, onSpawn, onLine } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new EngineError('중단됨', { aborted: true }));
     let child;
     try {
-      child = spawn(cmd, args, { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
+      child = spawnBin(cmd, args, { cwd, detached: !WIN, stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
     } catch (err) {
-      return reject(new EngineError(`${cmd} 실행 실패: ${err.message}`));
+      return reject(new EngineError(err.code === 'ENOENT' ? `'${cmd}' 명령을 찾을 수 없습니다. 설치되어 있는지 확인하세요.` : `${cmd} 실행 실패: ${err.message}`));
     }
     onSpawn?.(child);
     let stdout = '';
@@ -35,8 +35,8 @@ function runProcess(cmd, args, { input = '', cwd, signal, timeoutMs = DEFAULT_TI
     const kill = (reason) => {
       if (killReason) return;
       killReason = reason;
-      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* 이미 종료 */ }
-      setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* 이미 종료 */ } }, 3000).unref();
+      killTree(child, { group: true });
+      if (!WIN) setTimeout(() => killTree(child, { group: true, signal: 'SIGKILL' }), 3000).unref();
     };
     const onAbort = () => kill('abort');
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -102,7 +102,10 @@ function toolLabel(name, input = {}) {
 }
 
 async function claudeEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onEvent }) {
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--append-system-prompt', agent.systemPrompt];
+  // 시스템 프롬프트는 파일로 넘긴다. 길고 줄바꿈이 많아서 Windows 의 명령줄 길이·따옴표 제한에 걸리기 때문이다.
+  const promptFile = path.join(os.tmpdir(), `aitalk-claude-${crypto.randomUUID()}.txt`);
+  fs.writeFileSync(promptFile, agent.systemPrompt || '');
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--append-system-prompt-file', promptFile];
   if (sessionId) args.push('--resume', sessionId);
   if (agent.model) args.push('--model', agent.model);
   if (agent.fallbackModel && agent.fallbackModel !== agent.model) args.push('--fallback-model', agent.fallbackModel);
@@ -123,7 +126,12 @@ async function claudeEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, on
       for (const c of e.message?.content || []) if (c.type === 'tool_use') onEvent({ type: 'tool', label: toolLabel(c.name, c.input) });
     }
   });
-  const r = await runProcess(agent.bin || 'claude', args, { input: prompt, cwd, signal, timeoutMs: agent.timeoutMs, onSpawn, onLine });
+  let r;
+  try {
+    r = await runProcess(agent.bin || 'claude', args, { input: prompt, cwd, signal, timeoutMs: agent.timeoutMs, onSpawn, onLine });
+  } finally {
+    fs.rm(promptFile, { force: true }, () => {});
+  }
   let json;
   try {
     // stream-json: 여러 이벤트 줄 중 마지막 result 줄이 최종 답이다. (json 출력이면 마지막 줄 하나)
