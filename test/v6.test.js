@@ -104,3 +104,37 @@ test('자동화: 매번 새 채팅을 만들어 실행하고 실행 기록을 �
   for (let i = 0; i < 300 && (await api('GET', '/api/rooms')).data.rooms.some((r) => r.running); i++) await new Promise((r) => setTimeout(r, 30));
   await new Promise((r) => setTimeout(r, 100));
 });
+
+test('앱 업데이트: 새 버전 확인 → 내려받아 검증 → 설치 넘기기, 앱이 아닐 때는 없음', async () => {
+  const { Updater, newer } = require('../desktop/updater');
+  assert.ok(newer('v1.10.0', '1.9.3'));
+  assert.ok(!newer('1.1.0', '1.1.0'));
+  assert.equal((await api('GET', '/api/app-update')).data.update.status, 'none');
+
+  const body = Buffer.from('new installer');
+  const digest = `sha256:${require('node:crypto').createHash('sha256').update(body).digest('hex')}`;
+  const release = (d) => ({ tag_name: 'v9.0.0', assets: [{ name: 'DOMO-windows.exe', size: body.length, digest: d, browser_download_url: 'https://example.com/DOMO-windows.exe' }] });
+  let rel = release(digest);
+  const fetchImpl = async (url) => (String(url).includes('api.github.com') ? new Response(JSON.stringify(rel)) : new Response(body, { headers: { 'content-length': String(body.length) } }));
+  let quit = 0;
+  const up = new Updater({ version: '1.1.0', packaged: true, platform: 'win32', quit: () => { quit++; }, fetchImpl });
+  let installed = null;
+  // 실제 설치 프로그램은 실행하지 않고, 넘겨받은 파일만 확인한다.
+  Object.defineProperty(up, 'platform', { value: 'test', writable: true });
+  assert.equal((await up.check()).status, 'latest', '이 플랫폼용 파일이 없으면 업데이트 없음');
+  up.platform = 'win32';
+  assert.equal((await up.check()).status, 'available');
+
+  // 파일 지문이 다르면 설치하지 않는다
+  rel = release('sha256:deadbeef');
+  await up.check();
+  const bad = await up.install();
+  assert.equal(bad.status, 'error');
+  assert.match(bad.error, /원본과 다릅니다/);
+  assert.equal(quit, 0);
+
+  // 개발 모드(설치된 앱이 아님)에서는 설치하지 않는다
+  const dev = new Updater({ version: '1.1.0', packaged: false, platform: 'win32', fetchImpl });
+  assert.equal((await dev.install()).status, 'error');
+  assert.equal(installed, null);
+});

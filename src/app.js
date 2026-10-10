@@ -31,7 +31,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 function createApp({
   rootDir, dataDir, configPath, password, engines = defaultEngines, agentOverrides, port = 3939, pushFetch,
   hermesDir = path.join(os.homedir(), '.hermes'), enableScheduler = true, enableTunnel = true, now, workspace, tunnelBins = {},
-  connections: connectionsOpt, aiSetupCommands, pluginRun,
+  connections: connectionsOpt, aiSetupCommands, pluginRun, appUpdate,
 } = {}) {
   rootDir ||= path.join(__dirname, '..');
   dataDir ||= path.join(rootDir, 'data');
@@ -257,6 +257,19 @@ function createApp({
       case 'connections':
         if (method === 'GET') return json(res, 200, { connections: { ...await connections.status({ refresh: url.searchParams.has('refresh') }), canSetup } });
         break;
+
+      // 데스크톱 앱 업데이트 (앱으로 실행했을 때만 있다). 설치는 이 컴퓨터에서 열었을 때만 허용한다.
+      case 'app-update': {
+        if (!appUpdate) return json(res, 200, { update: { supported: false, status: 'none' } });
+        if (method === 'GET') return json(res, 200, { update: appUpdate.status() });
+        if (method === 'POST' && id === 'check') return json(res, 200, { update: await appUpdate.check() });
+        if (method === 'POST' && id === 'install') {
+          if (!isLocal) return json(res, 403, { error: '업데이트는 DOMO가 설치된 컴퓨터에서 진행해 주세요.' });
+          appUpdate.install();
+          return json(res, 200, { update: appUpdate.status() });
+        }
+        break;
+      }
 
       // AI 연결 버튼: 설치(없을 때만) → 로그인을 이 컴퓨터에서 대신 실행한다. 브라우저가 이 컴퓨터에서 열리므로 로컬 접속에서만 허용한다.
       case 'ai-setup':

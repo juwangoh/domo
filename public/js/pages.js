@@ -283,12 +283,42 @@
         })()),
       section('자동 기억', null,
         h('label', { class: 'switch-row' }, h('span', { class: 'grow' }, h('b', {}, '대화가 끝나면 기억하기'), h('span', {}, '내 정보·프로젝트·과제·대화 요약을 정리')), D.toggle(st.autoMemory, (v) => safe(api('PATCH', '/api/settings', { autoMemory: v }).then(D.loadMe))))),
+      updateSection(),
       section('계정', null, h('div', { class: 'row-gap' },
         h('button', { class: 'btn-ghost small', type: 'button', onclick: passwordSheet }, '비밀번호 변경'),
         h('button', { class: 'btn-ghost small', type: 'button', onclick: () => D.showOnboarding('about') }, '온보딩 다시 하기'),
         h('button', { class: 'btn-ghost small danger', type: 'button', onclick: async () => { await api('POST', '/api/logout').catch(() => {}); D.showAuth(); } }, '로그아웃'))),
       h('p', { class: 'page-foot' }, 'DOMO · Claude Code + Codex 기반 · 디자인 전공생을 위한 AI 스튜디오'),
     ];
+  }
+
+  // 앱 업데이트 (데스크톱 앱으로 실행했을 때만 보인다): 새 버전이 있으면 버튼 하나로 내려받아 다시 켠다.
+  function updateSection() {
+    const text = h('span', { class: 'grow' });
+    const btn = h('button', { class: 'btn-ghost small', type: 'button' });
+    const el = section('앱 업데이트', null, h('div', { class: 'switch-row' }, text, btn));
+    el.hidden = true;
+    let timer = null;
+    const call = async (method, path) => { const r = await safe(api(method, path)); if (r) draw(r.update); };
+    function draw(u) {
+      if (u.status === 'none') return;
+      el.hidden = false;
+      const busy = ['checking', 'downloading', 'installing'].includes(u.status);
+      const line = {
+        available: `새 버전 ${u.latest}이 나왔어요`, downloading: `내려받는 중 ${Math.round(u.progress * 100)}%`, installing: '설치하는 중이에요. 곧 DOMO가 다시 켜집니다.',
+        checking: '확인하는 중…', error: u.error, latest: '최신 버전이에요',
+      }[u.status] || '';
+      text.replaceChildren(h('b', {}, `버전 ${u.current}`), h('span', {}, line));
+      const canInstall = u.status === 'available' && u.supported;
+      btn.textContent = canInstall ? '지금 업데이트' : '업데이트 확인';
+      btn.className = canInstall ? 'btn-primary small' : 'btn-ghost small';
+      btn.disabled = busy;
+      btn.onclick = () => call('POST', canInstall ? '/api/app-update/install' : '/api/app-update/check');
+      clearTimeout(timer);
+      if (busy) timer = setTimeout(() => { if (el.isConnected) call('GET', '/api/app-update'); }, 800);
+    }
+    api('GET', '/api/app-update').then((r) => { draw(r.update); if (r.update.status === 'idle') call('POST', '/api/app-update/check'); }).catch(() => {});
+    return el;
   }
 
   function profileSheet() {
