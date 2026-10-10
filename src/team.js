@@ -18,6 +18,23 @@ function commandOf(text) {
   for (const [id, c] of Object.entries(COMMANDS)) if (c.re.test(text)) return id;
   return null;
 }
+// 정리 글에서 "다음 작업" 목록을 떼어 버튼으로 만든다. 못 찾으면 기본 제안을 쓴다.
+const NEXT_KINDS = { 컨셉: ['컨셉 3안', '/컨셉 '], 크리틱: ['크리틱 리허설', '/크리틱 '], 리서치: ['더 조사하기', '/리서치 '], 질문: ['이어서 묻기', ''] };
+function parseNext(text, request = '') {
+  const src = String(text || '');
+  const at = src.search(/^#{1,4}\s*다음 작업\s*$/m);
+  const next = [];
+  for (const m of (at >= 0 ? src.slice(at) : '').matchAll(/^\s*(?:\d+[.)]|[-*])\s*\[(컨셉|크리틱|리서치|질문)\]\s*(.+)$/gm)) {
+    const line = m[2].replace(/[*_`]/g, '').trim().slice(0, 200);
+    if (line && next.length < 3) next.push({ kind: NEXT_KINDS[m[1]][0], text: line, send: NEXT_KINDS[m[1]][1] + line });
+  }
+  if (!next.length) {
+    next.push({ kind: '컨셉 3안', text: '이 조사를 바탕으로 컨셉 잡기', send: `/컨셉 ${request}`.trim() });
+    next.push({ kind: '더 조사하기', text: '아직 모르는 것을 더 조사하기', send: '/리서치 ' });
+  }
+  return { body: (at >= 0 ? src.slice(0, at) : src).trim() || src.trim(), next };
+}
+
 const stripCommand = (text) => String(text).replace(/^\s*\/\S+\s*/, '').trim();
 
 const DEFAULT_RUBRIC = ['문제 정의 · 왜 이 문제인가', '리서치 근거 · 주장에 근거가 있는가', '컨셉 명확성 · 한 문장으로 설명되는가', '형태·디테일 · 완성도와 일관성', '전달력 · 판넬/발표에서 바로 읽히는가'];
@@ -94,6 +111,25 @@ ${facts}
 형식:
 | # | 판정 | 메모 |
 마지막 줄: "판정: 통과" 또는 "판정: 수정필요"`,
+
+  wrap: ({ request, facts, check, about, principles, unverified }) => `[팀 서비스: 데스크리서치 · 정리]
+## 조사 요청
+${request}
+${about ? `## 사용자 상황\n${about}\n` : ''}${principles ? `## 사용자의 기준\n${principles}\n` : ''}## 팩트시트
+${facts}
+${check ? `## 교차 검증 결과\n${check}\n` : ''}위 조사를 사용자가 바로 다음 작업으로 넘어갈 수 있게 정리하세요. 새 사실을 지어내지 말고 팩트시트에 있는 것만 쓰세요.${check ? ' 교차 검증에서 ✗·?로 표시된 내용은 고친 값으로 쓰거나 "미확인"이라고 밝히세요.' : ''}${unverified ? ' 교차 검증을 거치지 않았으므로 확정 표현을 아끼세요.' : ''}
+형식:
+## 한눈에
+- (핵심 3줄 이내 · 숫자와 기한은 그대로)
+## 내 작업에 뜻하는 것
+- (사용자 상황에 비추어 2~3줄 · "해석"임을 밝힐 것)
+## 아직 모르는 것
+- (없으면 "없음")
+## 다음 작업
+1. [컨셉] (이 조사를 바탕으로 컨셉을 잡을 때 팀에 보낼 요청문 한 줄)
+2. [리서치] (더 파야 할 주제 한 줄)
+3. [질문] (지금 바로 물어볼 만한 질문 한 줄)
+"다음 작업"은 2~3개만, 위 대괄호 종류([컨셉]·[크리틱]·[리서치]·[질문]) 중에서 골라 사용자 상황에 맞는 구체적인 문장으로 쓰세요.`,
 
   verify: ({ question, answer }) => `[팀 서비스: 사실 검증]
 ## 사용자 질문
@@ -201,6 +237,7 @@ ${userContext(A, userName)}
 - suggestions: 사용자가 고른 작업과 목표에 맞는 첫 작업 3개. 크리틱은 "/크리틱 ", 컨셉은 "/컨셉 ", 리서치는 "/리서치 "로 시작.`;
 
 module.exports = {
+  parseNext,
   COMMANDS, commandOf, stripCommand, rubricFrom, LENSES, prompts, taskKind,
   TONES, TASK_OPTIONS, cleanAnswers, userContext, userFacts, defaultSuggestions, onboardingPrompt, DEFAULT_RUBRIC,
 };

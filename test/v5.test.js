@@ -130,7 +130,7 @@ test('/리서치: 팩트시트 → 교차 검증(판정 포함), /검증: 직전
   const before = (await messages(chatId)).messages.length;
   await api('POST', `/api/rooms/${chatId}/messages`, { text: '/리서치 국내 친환경 가구 시장 규모' });
   let msgs = (await idle(chatId)).slice(before);
-  assert.deepEqual(msgs.filter((m) => m.meta?.team === 'research' && m.sender !== 'system').map((m) => m.meta.label), ['팩트시트', '교차 검증']);
+  assert.deepEqual(msgs.filter((m) => m.meta?.team === 'research' && m.sender !== 'system').map((m) => m.meta.label), ['팩트시트', '교차 검증', '리서치 정리']);
   assert.ok(msgs.find((m) => m.meta?.label === '교차 검증').meta.verdict);
 
   const b2 = (await messages(chatId)).messages.length;

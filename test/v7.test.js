@@ -51,7 +51,7 @@ test.after(async () => {
 
 test('예상 호출 수: Codex 미연결이면 리서치는 1회이고 검증 생략을 미리 알린다', async () => {
   const { plan } = (await api('GET', '/api/me')).data.team;
-  assert.equal(plan.research.calls, 1);
+  assert.equal(plan.research.calls, 2, '조사 + 정리');
   assert.match(plan.research.note, /교차 검증 생략 \(Codex 미연결\)/);
   assert.equal(plan.critique.calls, 4);
   assert.ok(plan.concept.approx && plan.concept.calls >= 7);
@@ -74,6 +74,16 @@ test('/리서치: Codex 미연결이면 검증한다고 말하지 않고, 결과
   const brief = calls.find((c) => c.prompt.includes('데스크리서치')).prompt;
   assert.match(brief, /## 사용자 상황[\s\S]*수성미디어아트페스타/);
 
+  // 마지막에 정리와 다음 작업 버튼이 붙는다
+  const wrap = msgs.find((m) => m.meta?.next);
+  assert.match(wrap.meta.label, /리서치 정리 · 검증 전/);
+  assert.ok(wrap.meta.next.length >= 2 && wrap.meta.next.every((n) => n.kind && n.send));
+  assert.match(calls.at(-1).prompt, /데스크리서치 · 정리[\s\S]*## 팩트시트/);
+  const { parseNext } = require('../src/team');
+  const parsed = parseNext('## 한눈에\n- 요약\n## 다음 작업\n1. [컨셉] 수성못을 무대로 한 미디어아트 3안\n2. [질문] 접수 마감이 언제야?');
+  assert.equal(parsed.body, '## 한눈에\n- 요약');
+  assert.deepEqual(parsed.next.map((n) => n.send), ['/컨셉 수성못을 무대로 한 미디어아트 3안', '접수 마감이 언제야?']);
+
   // /검증 도 같은 회사 모델이 대신했음을 밝힌다
   const before = msgs.length;
   await api('POST', `/api/rooms/${room.id}/messages`, { text: '/검증' });
@@ -83,9 +93,9 @@ test('/리서치: Codex 미연결이면 검증한다고 말하지 않고, 결과
 
 test('Codex 를 연결하면 다시 교차 검증한다', async () => {
   fake.codex = { installed: true, loggedIn: true };
-  assert.equal((await api('GET', '/api/me')).data.team.plan.research.calls, 2);
+  assert.equal((await api('GET', '/api/me')).data.team.plan.research.calls, 3);
   const room = (await api('POST', '/api/rooms', { members: [app.profiles.settings.primaryAgent] })).data.room;
   await api('POST', `/api/rooms/${room.id}/messages`, { text: '/리서치 미디어아트 공모전 동향' });
   const msgs = await idle(room.id);
-  assert.deepEqual(msgs.filter((m) => m.meta?.team === 'research' && m.sender !== 'system').map((m) => m.meta.label), ['팩트시트', '교차 검증']);
+  assert.deepEqual(msgs.filter((m) => m.meta?.team === 'research' && m.sender !== 'system').map((m) => m.meta.label), ['팩트시트', '교차 검증', '리서치 정리']);
 });

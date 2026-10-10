@@ -329,6 +329,13 @@
     const body = h('div', { class: 'ai-body' });
     if (meta.kind === 'minutes' || meta.kind === 'team-report') buildReport(body, m);
     else body.innerHTML = D.markdown(m.text);
+    // 다음 작업: 누르면 바로 보내지 않고 입력창에 채워, 예상 호출 수를 보고 고쳐 보낼 수 있게 한다.
+    if (meta.next?.length) {
+      body.append(h('div', { class: 'next-steps' },
+        h('div', { class: 'next-label' }, '다음 작업으로 이어가기'),
+        meta.next.map((n) => h('button', { class: 'next-btn', type: 'button', onclick: () => { input.value = n.send; D.syncComposer(); input.focus(); input.setSelectionRange(input.value.length, input.value.length); } },
+          h('b', {}, n.kind), h('span', {}, n.text), D.icon.chevron(14)))));
+    }
     const chips = [
       meta.label ? h('span', { class: 'tag' }, meta.label) : null,
       meta.verdict ? h('span', { class: `tag ${meta.verdict}` }, meta.verdict === 'pass' ? '✓ 문제 없음' : '↺ 수정 필요') : null,
@@ -469,7 +476,11 @@
 
   // 진행 중: 누가 무엇을 하는지 + 쓰고 있는 글
   // 글이 들어올 때마다 통째로 다시 그리면 스크롤이 끊기므로, 한 프레임에 한 번만, 바뀐 부분만 고친다.
-  const typingRows = new Map(); // agentId → { el, label, body, text }
+  const typingRows = new Map(); // agentId → { el, label, body, text, … }
+  const LABEL_HOLD_MS = 1600;
+  const TEXT_HOLD_MS = 700;
+  // 쓰는 중인 글의 끝부분을 표·기호 없이 평문으로 보여 준다 (완성된 답은 따로 제대로 그려진다).
+  const previewText = (t) => String(t || '').replace(/^[ \t]*\|?[ \t:|-]{3,}\|?[ \t]*$/gm, '').replace(/[#*`>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(-320);
   let typingQueued = false;
   D.renderTyping = () => {
     if (typingQueued) return;
@@ -480,7 +491,7 @@
     const holder = $('typingRows');
     if (!holder) return;
     const set = S.typing[S.roomId] || new Set();
-    for (const [id, row] of typingRows) if (!set.has(id) || !row.el.isConnected) { row.el.remove(); typingRows.delete(id); }
+    for (const [id, row] of typingRows) if (!set.has(id) || !row.el.isConnected) { clearTimeout(row.timer); row.el.remove(); typingRows.delete(id); }
     for (const id of set) {
       const act = S.activity[S.roomId]?.[id];
       let row = typingRows.get(id);
@@ -490,18 +501,25 @@
         const el = h('div', { class: 'msg-ai working' },
           h('div', { class: 'ai-head' }, D.avatarEl(D.agent(id), 'xs'), h('b', {}, D.name(id)), h('span', { class: 'working-label' }, h('span', { class: 'pulse' }), label)),
           body);
-        row = { el, label, body, text: null };
+        row = { el, label, body, text: '', labelAt: 0, textAt: 0, timer: null };
         typingRows.set(id, row);
         holder.append(el);
       }
+      // 눈이 피로하지 않게: 상태 문구는 한 번 뜨면 잠시 유지하고, 쓰는 글은 높이가 고정된 칸에 천천히 갱신한다.
+      const now = performance.now();
+      let wait = 0;
       const labelText = act?.label || '생각 중';
-      if (row.label.textContent !== labelText) row.label.textContent = labelText;
-      const live = act?.text?.trim() || '';
-      if (live !== row.text) {
-        row.text = live;
-        row.body.hidden = !live;
-        if (live) row.body.innerHTML = D.markdown(live.length > 900 ? `…${live.slice(-900)}` : live);
+      if (row.label.textContent !== labelText) {
+        if (now - row.labelAt >= LABEL_HOLD_MS) { row.label.textContent = labelText; row.labelAt = now; }
+        else wait = LABEL_HOLD_MS - (now - row.labelAt);
       }
+      // 도구를 쓰는 동안 글이 비어도 칸을 접지 않는다 (접었다 폈다 하면 화면이 출렁인다).
+      const live = previewText(act?.text);
+      if (live && live !== row.text) {
+        if (now - row.textAt >= TEXT_HOLD_MS) { row.text = live; row.textAt = now; row.body.hidden = false; row.body.textContent = live; }
+        else wait = wait ? Math.min(wait, TEXT_HOLD_MS - (now - row.textAt)) : TEXT_HOLD_MS - (now - row.textAt);
+      }
+      if (wait && !row.timer) row.timer = setTimeout(() => { row.timer = null; D.renderTyping(); }, wait + 20);
     }
     if (pinned) { const b = $('messages'); b.scrollTop = b.scrollHeight; }
   }

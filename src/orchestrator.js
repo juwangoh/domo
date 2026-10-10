@@ -234,7 +234,7 @@ class Orchestrator {
     const joiner = (critic || lead).id !== c.primary.id ? (critic || lead) : c.primary;
     return {
       critique: plan([critic || c.primary, concept || critic || c.primary, c.codex || critic || c.primary, lead]),
-      research: plan([c.researcher, c.verifier], c.verifier ? {} : { note: `교차 검증 생략 (${skip})` }),
+      research: plan([c.researcher, c.verifier, lead], c.verifier ? {} : { note: `교차 검증 생략 (${skip})` }),
       verify: plan([c.verifierAny || c.primary], c.verifierAny ? {} : { note: `${skip} · 같은 회사 모델이 대신 확인` }),
       compare: plan([c.primary, c.primary, second, joiner]),
       // 가설 질문 → 발산 2 → 채점 2 → 결정 카드 → 시안 → 검토 2 → 정리. 고칠 때마다 2회쯤 더 든다.
@@ -281,14 +281,23 @@ class Orchestrator {
       const facts = await this.ask(room, researcher, job, team.prompts.facts({ request, principles, about: this.memory.aboutText?.() || '' }));
       if (!facts) return;
       this.post(room.id, researcher.id, facts.text, this.teamMeta(researcher, facts, { team: 'research', label: verifier ? '팩트시트' : `팩트시트 · 검증 생략됨(${skip})`, unverified: !verifier }));
+      let check = '';
       if (!verifier) {
         this.post(room.id, 'system', `교차 검증 생략됨 (${skip}) · 위 팩트시트는 다른 AI가 확인하지 않았습니다.${skip === 'Codex 미연결' ? ' 설정 → AI 연결에서 ChatGPT를 연결하면 다음부터 교차 검증합니다.' : ''}`, { kind: 'limit', team: 'research' });
-        return;
+      } else {
+        const chk = await this.ask(room, verifier, job, team.prompts.crosscheck({ request, facts: facts.text }));
+        if (chk) {
+          const { verdict, body } = this.splitVerdict(chk.text);
+          check = body;
+          this.post(room.id, verifier.id, body, this.teamMeta(verifier, chk, { team: 'research', label: '교차 검증', verdict: verdict || 'revise' }));
+        }
       }
-      const chk = await this.ask(room, verifier, job, team.prompts.crosscheck({ request, facts: facts.text }));
-      if (!chk) return;
-      const { verdict, body } = this.splitVerdict(chk.text);
-      this.post(room.id, verifier.id, body, this.teamMeta(verifier, chk, { team: 'research', label: '교차 검증', verdict: verdict || 'revise' }));
+      // 마무리: 조사와 검증을 한데 모아 요약하고, 다음에 이어갈 작업을 버튼으로 건넨다.
+      const lead = A(R.pm) || primary;
+      const wrap = await this.ask(room, lead, job, team.prompts.wrap({ request, facts: facts.text, check, about: this.memory.aboutText?.() || '', principles, unverified: !verifier }));
+      if (!wrap) return;
+      const { body: summary, next } = team.parseNext(wrap.text, request);
+      this.post(room.id, lead.id, summary, this.teamMeta(lead, wrap, { team: 'research', label: verifier ? '리서치 정리' : '리서치 정리 · 검증 전', next }));
       return;
     }
 
