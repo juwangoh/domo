@@ -18,7 +18,7 @@ class Scheduler {
   list() { return this.items; }
 
   create(input) {
-    const item = { id: crypto.randomUUID().slice(0, 8), enabled: true, lastRun: null, ...clean(input) };
+    const item = { id: crypto.randomUUID().slice(0, 8), enabled: input.enabled !== false, lastRun: null, runs: [], ...clean(input) };
     this.items.push(item);
     this.save();
     return item;
@@ -31,6 +31,14 @@ class Scheduler {
     if (typeof patch.enabled === 'boolean') item.enabled = patch.enabled;
     this.save();
     return item;
+  }
+
+  // 실행 기록 (최근 10개): 언제 실행했고 결과가 어느 대화에 있는지
+  logRun(id, roomId) {
+    const item = this.items.find((x) => x.id === id);
+    if (!item) return;
+    item.runs = [{ ts: this.now().getTime(), roomId }, ...(item.runs || [])].slice(0, 10);
+    this.save();
   }
 
   remove(id) {
@@ -70,6 +78,9 @@ function clean(x) {
   return {
     name: String(x.name || '예약 작업').slice(0, 40),
     roomId: String(x.roomId || ''),
+    // target 'new': 실행할 때마다 agentId 와의 새 채팅을 만든다. 'room': roomId 대화에 이어서 보낸다.
+    target: x.target === 'new' ? 'new' : 'room',
+    agentId: String(x.agentId || ''),
     time: /^([01]\d|2[0-3]):[0-5]\d$/.test(x.time || '') ? x.time : '08:00',
     days: days.length ? days.sort() : [0, 1, 2, 3, 4, 5, 6],
     prompt: String(x.prompt || '').slice(0, 4000),

@@ -11,14 +11,15 @@
   const tray = h('div', { class: 'attach-tray', hidden: true });
   const replyBar = h('div', { class: 'reply-bar', hidden: true });
   const aiChip = h('button', { class: 'tool-chip', type: 'button', onclick: () => aiPicker() });
-  const teamChip = h('button', { class: 'tool-chip', type: 'button', onclick: () => teamMenu() }, D.icon.spark(15), h('span', {}, '팀', h('span', { class: 'long' }, ' 서비스')));
+  const teamChip = h('button', { class: 'tool-chip only-desktop', type: 'button', onclick: () => teamMenu() }, D.icon.spark(15), h('span', {}, '팀', h('span', { class: 'long' }, ' 서비스')));
   const attachInput = h('input', { type: 'file', accept: 'image/*,application/pdf,text/plain,text/markdown,.md,.csv', multiple: true, hidden: true, onchange: (e) => { for (const f of e.target.files) addAttachment(f); e.target.value = ''; } });
   const composer = h('form', { class: 'composer', onsubmit: (e) => { e.preventDefault(); currentRoom()?.running ? stop() : send(); } },
     replyBar, tray,
     h('div', { class: 'composer-box' },
       input,
       h('div', { class: 'composer-row' },
-        h('button', { class: 'icon-btn', type: 'button', 'aria-label': '파일·이미지 첨부', onclick: () => attachInput.click() }, D.icon.clip(19)),
+        h('button', { class: 'icon-btn plus-btn only-mobile', type: 'button', 'aria-label': '첨부와 팀 서비스', onclick: () => plusMenu() }, D.icon.plus(22)),
+        h('button', { class: 'icon-btn only-desktop', type: 'button', 'aria-label': '파일·이미지 첨부', onclick: () => attachInput.click() }, D.icon.clip(19)),
         aiChip, teamChip,
         h('span', { class: 'grow' }),
         sendBtn)),
@@ -139,6 +140,16 @@
     D.syncComposer();
     input.focus();
     D.toast(COMMAND_HINT[id]);
+  }
+
+  // 폰: + 버튼 하나에 첨부와 팀 서비스를 모은다.
+  function plusMenu() {
+    D.openSheet({ title: '추가' }, (body) => body.append(
+      h('div', { class: 'menu-list' },
+        h('button', { class: 'menu-item', type: 'button', onclick: () => { D.closeSheet(); attachInput.click(); } }, h('b', {}, '사진·파일 첨부'), h('span', {}, '이미지, PDF, 텍스트 파일'))),
+      h('div', { class: 'sheet-label' }, '팀 서비스'),
+      h('div', { class: 'menu-list' }, Object.entries(S.me.team.commands).map(([id, c]) => h('button', { class: 'menu-item', type: 'button', onclick: () => { D.closeSheet(); insertCommand(id); } },
+        h('b', {}, c.label), h('span', {}, c.desc))))));
   }
 
   function teamMenu() {

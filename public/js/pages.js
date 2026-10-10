@@ -2,7 +2,7 @@
 // 페이지: AI 팀(페르소나 편집) · 과제·기억 · 1명 vs 팀 인사이트 · 설정
 (() => {
   const { h, $, S, api, safe } = D;
-  const PAGES = { team: renderTeam, memory: renderMemory, insights: renderInsights, settings: renderSettings };
+  const PAGES = D.PAGES = { team: renderTeam, memory: renderMemory, insights: renderInsights, settings: renderSettings };
 
   D.renderPage = (view) => {
     const page = $('view-page');
@@ -15,6 +15,9 @@
   const section = (title, note, ...children) => h('section', { class: 'page-section' },
     title ? h('h2', {}, title) : null, note ? h('p', { class: 'page-note' }, note) : null, ...children);
   const head = (title, sub, action) => h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, title), sub ? h('p', {}, sub) : null), action || null);
+
+  D.pageHead = head;
+  D.pageSection = section;
 
   // ── AI 팀 ────────────────────────────────────
   function renderTeam() {

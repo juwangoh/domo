@@ -75,9 +75,9 @@
       D.renderSidebar();
     });
     on('rooms', () => D.loadRooms());
-    on('agents', async () => { await D.loadMe(); D.renderSidebar(); if (S.view === 'chat') { D.renderChatHeader(); D.renderMessages(); } D.rerenderPage(['team', 'settings']); });
+    on('agents', async () => { await D.loadMe(); D.renderSidebar(); if (S.view === 'chat') { D.renderChatHeader(); D.renderMessages(); } D.rerenderPage(['team', 'settings', 'plugins']); });
     on('memory', async () => { await D.loadMemory(); D.rerenderPage(['memory']); if (S.view === 'chat') D.renderMessages(); });
-    on('schedules', () => D.rerenderPage(['settings']));
+    on('schedules', () => { if (S.view === 'automations') D.loadSchedules(); });
     on('skills', () => { S.skills = null; D.rerenderPage(['memory']); });
     on('tunnel', (t) => { S.me.tunnel = t; D.rerenderPage(['settings']); });
   }
@@ -88,7 +88,7 @@
     const m = hash.match(/^#\/c\/(.+)$/);
     D.closeDrawer();
     if (m && S.rooms.some((r) => r.id === decodeURIComponent(m[1]))) return show('chat', decodeURIComponent(m[1]));
-    const page = hash.match(/^#\/(team|memory|insights|settings)$/)?.[1];
+    const page = hash.match(/^#\/(team|memory|insights|settings|plugins|automations)$/)?.[1];
     if (page) return show(page);
     return show('home');
   }
@@ -114,37 +114,67 @@
     if (!S.me) return;
     const nav = (hash, label, ic, view) => h('a', { class: `nav-item${S.view === view ? ' on' : ''}`, href: hash }, ic(18), h('span', {}, label));
     const openTasks = (S.memory?.tasks || []).filter((t) => t.status !== 'done').length;
-    const groups = new Map();
-    for (const r of S.rooms) {
-      const g = D.dayGroup(r.last?.ts || r.createdAt);
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g).push(r);
+    // 대화 목록: 검색어가 있으면 이름으로 거른다. 검색 중에는 목록만 다시 그려서 입력칸의 포커스를 지킨다.
+    const listBox = h('div', { class: 'side-list' });
+    const drawList = () => {
+      const q = (S.roomQuery || '').trim().toLowerCase();
+      const rooms = q ? S.rooms.filter((r) => r.name.toLowerCase().includes(q)) : S.rooms;
+      const groups = new Map();
+      for (const r of rooms) {
+        const g = D.dayGroup(r.last?.ts || r.createdAt);
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(r);
+      }
+      const list = [...groups.entries()].map(([g, rs]) => [
+        h('div', { class: 'side-label' }, g),
+        rs.map((r) => {
+          const live = r.running || S.typing[r.id]?.size;
+          const waiting = r.project?.awaiting && !r.running;
+          return h('a', { class: `room-item${r.id === S.roomId ? ' on' : ''}`, href: `#/c/${encodeURIComponent(r.id)}`, title: r.name },
+            h('span', { class: 'room-name' }, r.name),
+            live ? h('span', { class: 'dot live', title: '진행 중' }) : waiting ? h('span', { class: 'dot wait', title: '내 차례' }) : S.unread[r.id] ? h('span', { class: 'dot', title: '새 메시지' }) : null);
+        }),
+      ]);
+      listBox.replaceChildren(...(rooms.length ? list : [h('div', { class: 'side-empty' }, q ? '찾는 대화가 없어요' : '아직 대화가 없어요')]).flat(Infinity));
+    };
+    drawList();
+    const search = h('label', { class: 'side-search' }, D.icon.search(18),
+      h('input', { type: 'search', placeholder: '대화 검색', 'aria-label': '대화 검색', value: S.roomQuery || '', enterkeyhint: 'search', oninput: (e) => { S.roomQuery = e.target.value; drawList(); } }));
+    // 검색 중에 다른 이유로 사이드바를 다시 그릴 때는 목록만 바꾼다.
+    const old = $('sidebar').querySelector('.side-search input');
+    if (old && document.activeElement === old) {
+      $('sidebar').querySelector('.side-list').replaceWith(listBox);
+      return;
     }
-    const list = [...groups.entries()].map(([g, rooms]) => [
-      h('div', { class: 'side-label' }, g),
-      rooms.map((r) => {
-        const live = r.running || S.typing[r.id]?.size;
-        const waiting = r.project?.awaiting && !r.running;
-        return h('a', { class: `room-item${r.id === S.roomId ? ' on' : ''}`, href: `#/c/${encodeURIComponent(r.id)}`, title: r.name },
-          h('span', { class: 'room-name' }, r.name),
-          live ? h('span', { class: 'dot live', title: '진행 중' }) : waiting ? h('span', { class: 'dot wait', title: '내 차례' }) : S.unread[r.id] ? h('span', { class: 'dot', title: '새 메시지' }) : null);
-      }),
-    ]);
     $('sidebar').replaceChildren(
       h('div', { class: 'side-top' },
         h('a', { class: 'brand', href: '#/' }, h('img', { src: '/mark-ink.svg', alt: '', width: 24, height: 24 }), h('span', {}, 'DOMO')),
         h('button', { class: 'icon-btn only-mobile', type: 'button', 'aria-label': '메뉴 닫기', onclick: D.closeDrawer }, '✕')),
       h('button', { class: 'new-chat', type: 'button', onclick: () => D.go('#/') }, D.icon.plus(18), h('span', {}, '새 채팅')),
+      search,
       h('nav', { class: 'side-nav' },
         nav('#/memory', `과제·기억${openTasks ? ` · ${openTasks}` : ''}`, D.icon.memory, 'memory'),
+        nav('#/automations', '자동화', D.icon.clock, 'automations'),
+        nav('#/plugins', '플러그인', D.icon.plug, 'plugins'),
         nav('#/team', 'AI 팀', D.icon.team, 'team'),
         nav('#/insights', '1명 vs 팀 인사이트', D.icon.chart, 'insights')),
-      h('div', { class: 'side-list' }, S.rooms.length ? list : h('div', { class: 'side-empty' }, '아직 대화가 없어요')),
+      listBox,
       h('a', { class: `side-account${S.view === 'settings' ? ' on' : ''}`, href: '#/settings' },
         D.userAvatar('sm'),
         h('span', { class: 'acc-text' }, h('b', {}, S.me.user.name), h('span', {}, S.me.account?.email || '설정')),
         D.icon.gear(18)));
   };
+
+  // 폰에서 키보드가 올라오면 앱 높이를 실제로 보이는 영역에 맞춘다 (입력창이 키보드에 가려지지 않게).
+  if (window.visualViewport) {
+    const fit = () => {
+      document.documentElement.style.setProperty('--vvh', `${Math.round(visualViewport.height)}px`);
+      if (D.coarse) window.scrollTo(0, 0);
+    };
+    visualViewport.addEventListener('resize', fit);
+    visualViewport.addEventListener('scroll', fit);
+    fit();
+  }
 
   // 모바일 서랍
   D.openDrawer = () => { document.body.classList.add('drawer-open'); };
@@ -169,7 +199,7 @@
 
   // 상단 바: 모바일은 메뉴 · 제목 · 새 채팅, 데스크톱은 제목과 대화 메뉴
   D.renderTopbar = () => {
-    const titles = { home: '', team: 'AI 팀', memory: '과제·기억', insights: '1명 vs 팀 인사이트', settings: '설정' };
+    const titles = { home: '', team: 'AI 팀', memory: '과제·기억', insights: '1명 vs 팀 인사이트', settings: '설정', plugins: '플러그인', automations: '자동화' };
     const room = S.rooms.find((r) => r.id === S.roomId);
     const title = S.view === 'chat' ? room?.name || '' : titles[S.view];
     $('topbar').replaceChildren(
@@ -179,6 +209,6 @@
         : h('div', { class: 'top-title' }, title),
       h('div', { class: 'top-right' },
         S.view === 'chat' ? h('span', { id: 'topStatus', class: 'top-status' }) : null,
-        h('button', { class: 'icon-btn only-mobile', type: 'button', 'aria-label': '새 채팅', onclick: () => D.go('#/') }, D.icon.plus(22))));
+        h('button', { class: 'icon-btn only-mobile', type: 'button', 'aria-label': '새 채팅', onclick: () => D.go('#/') }, D.icon.compose(22))));
   };
 })();

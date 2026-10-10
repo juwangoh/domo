@@ -31,7 +31,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 function createApp({
   rootDir, dataDir, configPath, password, engines = defaultEngines, agentOverrides, port = 3939, pushFetch,
   hermesDir = path.join(os.homedir(), '.hermes'), enableScheduler = true, enableTunnel = true, now, workspace, tunnelBins = {},
-  connections: connectionsOpt, aiSetupCommands,
+  connections: connectionsOpt, aiSetupCommands, pluginRun,
 } = {}) {
   rootDir ||= path.join(__dirname, '..');
   dataDir ||= path.join(rootDir, 'data');
@@ -47,7 +47,7 @@ function createApp({
   if (agentOverrides) for (const a of profiles.agents()) Object.assign(a, agentOverrides);
   const store = new Store(dataDir, seed.defaultRooms || []);
   const memory = new Memory(dataDir);
-  const plugins = new Plugins(dataDir);
+  const plugins = new Plugins(dataDir, pluginRun ? { run: pluginRun } : {});
   const auth = new Auth(dataDir, password);
   const bus = new EventEmitter();
   bus.setMaxListeners(100);
@@ -86,12 +86,25 @@ function createApp({
 
   const scheduler = new Scheduler(dataDir, {
     now,
-    onFire: (item) => {
-      if (!store.getRoom(item.roomId) || !item.prompt) return;
-      orch.userMessage(item.roomId, item.prompt, { scheduled: true, scheduleName: item.name });
-      bus.emit('schedules', {});
-    },
+    onFire: (item) => { runSchedule(item); },
   });
+  // 자동화 실행: 정해 둔 대화에 이어서 보내거나, 매번 새 채팅을 만들어 보낸다.
+  function runSchedule(item) {
+    if (!item.prompt) return false;
+    let roomId = item.roomId;
+    if (item.target === 'new') {
+      const agent = profiles.agent(item.agentId) || profiles.agent(profiles.settings.primaryAgent) || profiles.agents()[0];
+      if (!agent) return false;
+      const d = scheduler.now();
+      roomId = store.createRoom({ name: `${item.name} · ${d.getMonth() + 1}/${d.getDate()}`, members: [agent.id], mode: 'chat' }).id;
+      bus.emit('rooms', {});
+    }
+    if (!store.getRoom(roomId)) return false;
+    orch.userMessage(roomId, item.prompt, { scheduled: true, scheduleName: item.name });
+    scheduler.logRun(item.id, roomId);
+    bus.emit('schedules', {});
+    return true;
+  }
   if (enableScheduler) scheduler.start();
 
   const tunnel = new Tunnel({ rootDir, dataDir, port, onChange: (s) => bus.emit('tunnel', s), getProvider: () => profiles.settings.tunnelProvider, ...tunnelBins });
@@ -332,9 +345,40 @@ function createApp({
       }
 
       case 'plugins': {
-        if (!id && method === 'GET') return json(res, 200, { plugins: await plugins.list({ refresh: url.searchParams.has('refresh') }) });
-        if (!id && method === 'POST') { const name = plugins.addCustom(body); return json(res, 201, { name, plugins: await plugins.list({ refresh: true }) }); }
-        if (id && method === 'DELETE') { plugins.removeCustom(id); return json(res, 200, { plugins: await plugins.list({ refresh: true }) }); }
+        const view = async (refresh) => ({ plugins: (await plugins.list({ refresh })).map((p) => ({ ...p, loggingIn: plugins.logins.has(p.name) })), catalog: plugins.catalog(), canSetup });
+        if (!id && method === 'GET') return json(res, 200, await view(url.searchParams.has('refresh')));
+        if (!id && method === 'POST') {
+          // preset: 목록에서 고른 플러그인 · oauth: 브라우저 로그인 방식 · 그 외: 주소(+토큰)나 실행 명령을 직접 추가
+          const preset = plugins.catalog().find((c) => c.id === body.preset);
+          if (body.preset && !preset) throw httpError(400, '알 수 없는 플러그인입니다.');
+          const name = preset ? await plugins.addShared(preset) : body.oauth ? await plugins.addShared(body) : plugins.addCustom(body);
+          // 추가한 플러그인은 바로 쓸 수 있게 모든 AI에게 허용한다 (플러그인 화면에서 AI별로 끌 수 있다).
+          for (const a of profiles.agents()) if (!a.plugins.includes(name)) profiles.updateAgent(a.id, { plugins: [...a.plugins, name] });
+          bus.emit('agents', {});
+          return json(res, 201, { name, ...await view(true) });
+        }
+        if (id && sub === 'login' && method === 'POST') {
+          if (!canSetup) throw httpError(403, '플러그인 로그인은 DOMO가 설치된 컴퓨터에서 진행해 주세요.');
+          plugins.login(id);
+          return json(res, 200, await view(false));
+        }
+        // 이 플러그인을 쓸 수 있는 AI 를 정한다 (아무도 없으면 꺼진 것과 같다).
+        if (id && sub === 'agents' && method === 'PUT') {
+          const allow = new Set(Array.isArray(body.agents) ? body.agents : []);
+          for (const a of profiles.agents()) {
+            const has = a.plugins.includes(id);
+            if (allow.has(a.id) && !has) profiles.updateAgent(a.id, { plugins: [...a.plugins, id] });
+            else if (!allow.has(a.id) && has) profiles.updateAgent(a.id, { plugins: a.plugins.filter((p) => p !== id) });
+          }
+          bus.emit('agents', {});
+          return json(res, 200, { ok: true });
+        }
+        if (id && !sub && method === 'DELETE') {
+          await plugins.remove(id);
+          for (const a of profiles.agents()) if (a.plugins.includes(id)) profiles.updateAgent(a.id, { plugins: a.plugins.filter((p) => p !== id) });
+          bus.emit('agents', {});
+          return json(res, 200, await view(true));
+        }
         break;
       }
 
@@ -364,9 +408,8 @@ function createApp({
         if (id && method === 'DELETE') { scheduler.remove(id); bus.emit('schedules', {}); return json(res, 200, { ok: true }); }
         if (id && sub === 'run' && method === 'POST') {
           const s = scheduler.list().find((x) => x.id === id);
-          if (!s || !store.getRoom(s.roomId)) throw httpError(404, '예약 작업 또는 대화방이 없습니다.');
-          orch.userMessage(s.roomId, s.prompt, { scheduled: true, scheduleName: s.name });
-          return json(res, 200, { ok: true });
+          if (!s || !runSchedule(s)) throw httpError(404, '자동화를 실행하지 못했습니다. 할 일과 대화(또는 담당 AI)를 확인해 주세요.');
+          return json(res, 200, { ok: true, schedule: s });
         }
         break;
       }
