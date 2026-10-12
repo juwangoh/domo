@@ -76,18 +76,32 @@ const PERMISSIONS = {
   full: { label: '전체 권한', desc: '터미널 명령 실행까지 허용 (주의)', claude: { allow: ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'Edit', 'Write', 'Bash'], deny: [] }, codex: 'danger-full-access' },
 };
 
+// 팀 작업(크리틱·리서치 등)의 기본 모델. 설정에서 바꿀 수 있고, 로직은 이 이름에 묶이지 않는다.
+const TEAM_MODEL = 'claude-sonnet-5-5';
+
+// Codex 모델 목록: 이 컴퓨터의 Codex 가 받아 둔 목록(계정에서 쓸 수 있는 모델)을 읽는다. 없으면 기본 목록을 쓴다.
+function codexModels() {
+  const base = [{ id: '', label: '기본값', desc: 'Codex가 권하는 모델 · 추천' }];
+  const fallback = [...base, { id: 'gpt-6-astra', label: 'GPT-6 Astra', desc: '가장 강력' }];
+  try {
+    const file = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'models_cache.json');
+    const list = (JSON.parse(fs.readFileSync(file, 'utf8')).models || []).filter((m) => m.slug && m.visibility === 'list').slice(0, 6);
+    if (!list.length) return fallback;
+    const ko = (d = '') => (/frontier|most demanding/i.test(d) ? '가장 강력' : /fast|afford|efficient/i.test(d) ? '빠르고 저렴' : /previous|older|legacy/i.test(d) ? '이전 세대' : /balanced/i.test(d) ? '균형' : '');
+    return [...base, ...list.map((m) => ({ id: m.slug, label: String(m.display_name || m.slug).replace(/-/g, ' '), desc: ko(m.description) || 'Codex 모델' }))];
+  } catch { return fallback; }
+}
+
 const MODELS = {
   claude: [
     { id: '', label: '기본값', desc: 'Claude Code 설정을 따름' },
     { id: 'claude-fable-5-1', label: 'Fable 5.1', desc: '가장 강력 · 토큰 많이 씀' },
     { id: 'claude-opus-5-5', label: 'Opus 5.5', desc: '추천 · 똑똑하고 균형' },
+    { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', desc: '팀 작업 기본 · 빠르고 저렴' },
     { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: '빠르고 저렴' },
     { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: '가장 빠르고 저렴' },
   ],
-  codex: [
-    { id: '', label: '기본값', desc: 'Codex 설정을 따름' },
-    { id: 'gpt-6-astra', label: 'GPT-6 Astra', desc: '현재 Codex 기본 모델' },
-  ],
+  codex: codexModels(),
   mock: [{ id: '', label: '테스트용', desc: '요금 없음' }],
 };
 const EFFORTS = ['', 'low', 'medium', 'high'];
@@ -104,7 +118,7 @@ class Profiles {
       this.data = seed(seedPath);
       this.save();
     }
-    this.data.settings = { autoMemory: true, curatorModel: 'claude-haiku-4-5-20251001', tunnelAuto: false, tunnelProvider: 'auto', ...this.data.settings };
+    this.data.settings = { autoMemory: true, dataConsent: false, teamModel: TEAM_MODEL, critiqueModels: { read: TEAM_MODEL, lens: TEAM_MODEL, check: TEAM_MODEL, locate: TEAM_MODEL, synth: TEAM_MODEL }, curatorModel: 'claude-haiku-4-5-20251001', tunnelAuto: false, tunnelProvider: 'auto', ...this.data.settings };
   }
 
   save() {
@@ -128,8 +142,19 @@ class Profiles {
   }
 
   updateSettings(patch) {
-    for (const k of ['autoMemory', 'tunnelAuto']) if (typeof patch[k] === 'boolean') this.data.settings[k] = patch[k];
+    for (const k of ['autoMemory', 'tunnelAuto', 'dataConsent']) if (typeof patch[k] === 'boolean') this.data.settings[k] = patch[k];
+    // 크리틱 단계별 모델: 비우면 그 단계를 맡은 AI 의 모델을 쓴다. 모델 목록에 있는 값만 받는다.
+    if (patch.critiqueModels && typeof patch.critiqueModels === 'object') {
+      const known = new Set(Object.values(MODELS).flat().map((m) => m.id));
+      const next = {};
+      for (const step of ['read', 'lens', 'check', 'locate', 'synth']) {
+        const v = patch.critiqueModels[step] ?? this.data.settings.critiqueModels?.[step];
+        if (typeof v === 'string' && v && known.has(v)) next[step] = v;
+      }
+      this.data.settings.critiqueModels = next;
+    }
     if (typeof patch.curatorModel === 'string') this.data.settings.curatorModel = patch.curatorModel;
+    if (typeof patch.teamModel === 'string' && (!patch.teamModel || MODELS.claude.some((m) => m.id === patch.teamModel))) this.data.settings.teamModel = patch.teamModel;
     if (['auto', 'tailscale', 'cloudflare'].includes(patch.tunnelProvider)) this.data.settings.tunnelProvider = patch.tunnelProvider;
     if (typeof patch.onboarded === 'boolean') this.data.settings.onboarded = patch.onboarded;
     if (typeof patch.tagline === 'string') this.data.settings.tagline = patch.tagline.trim().slice(0, 90);

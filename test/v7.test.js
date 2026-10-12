@@ -10,7 +10,11 @@ const { createApp } = require('../src/app');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'domo-v7-'));
 const calls = [];
 // 실제 CLI 대신 기록만 하는 엔진. Codex 는 연결되지 않았으므로 불리면 안 된다.
+let codexBroken = false;
+const seen = [];
 const fakeEngine = (engine) => async ({ prompt, agent }) => {
+  seen.push({ engine, step: prompt.match(/\[크리틱 단계: (\w+)\]/)?.[1], model: agent.model, lean: agent.lean, tools: agent.tools, noTools: agent.noTools, fallbackModel: agent.fallbackModel });
+  if (engine === 'codex' && codexBroken) throw new Error('model is not supported');
   calls.push({ engine, agentId: agent.id, prompt });
   return { text: engine === 'claude' && /JSON/.test(agent.systemPrompt || '') ? '{}' : `${agent.name}의 답\n판정: 통과`, sessionId: null, meta: {} };
 };
@@ -53,7 +57,7 @@ test('예상 호출 수: Codex 미연결이면 리서치는 1회이고 검증 �
   const { plan } = (await api('GET', '/api/me')).data.team;
   assert.equal(plan.research.calls, 2, '조사 + 정리');
   assert.match(plan.research.note, /교차 검증 생략 \(Codex 미연결\)/);
-  assert.equal(plan.critique.calls, 4);
+  assert.equal(plan.critique.calls, 7);
   assert.ok(plan.concept.approx && plan.concept.calls >= 7);
   assert.ok(plan.critique.models.length >= 1);
 });
@@ -98,4 +102,26 @@ test('Codex 를 연결하면 다시 교차 검증한다', async () => {
   await api('POST', `/api/rooms/${room.id}/messages`, { text: '/리서치 미디어아트 공모전 동향' });
   const msgs = await idle(room.id);
   assert.deepEqual(msgs.filter((m) => m.meta?.team === 'research' && m.sender !== 'system').map((m) => m.meta.label), ['팩트시트', '교차 검증', '리서치 정리']);
+});
+
+test('크리틱: 다른 회사 모델이 답하지 못하면 다른 AI 가 대신 맡아 세 시점과 검증을 채운다', async () => {
+  codexBroken = true;
+  const room = (await api('POST', '/api/rooms', { members: [app.profiles.settings.primaryAgent] })).data.room;
+  await api('POST', `/api/rooms/${room.id}/messages`, { text: '/크리틱 판넬 봐줘' });
+  const id = (await idle(room.id)).at(-1).meta.critiqueId;
+  calls.length = 0;
+  await api('POST', `/api/rooms/${room.id}/messages`, { text: '그대로' });
+  const msgs = await idle(room.id);
+  assert.ok(msgs.some((m) => /대신 시점별 크리틱을 맡습니다/.test(m.text)));
+  const { critique: C } = (await api('GET', `/api/critiques/${id}`)).data;
+  assert.equal(C.status, 'done');
+  assert.equal(C.calls.filter((c) => c.step === 'lens').length, 3);
+  assert.equal(C.calls.filter((c) => c.step === 'check').length, 1);
+  assert.ok(C.calls.every((c) => c.engine === 'claude'));
+  assert.ok(!C.checkSkipped);
+  // 비용: 팀 호출은 가볍게(등록된 MCP·스킬 제외), 팀 기본 모델로, 크리틱은 Read 도구만
+  const lens = seen.filter((x) => x.step === 'lens' && x.engine === 'claude').at(-1);
+  assert.deepEqual([lens.model, lens.lean, lens.tools], ['claude-sonnet-5-5', true, ['Read']]);
+  assert.equal(seen.filter((x) => x.step === 'synth').at(-1).noTools, true);
+  codexBroken = false;
 });

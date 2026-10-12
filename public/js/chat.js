@@ -73,9 +73,9 @@
   };
 
   let sending = false;
-  async function send() {
+  async function send(extra = {}) {
     const text = input.value.trim();
-    const files = S.pending.filter((f) => f.id).map((f) => f.id);
+    const files = extra.files || S.pending.filter((f) => f.id).map((f) => f.id);
     if ((!text && !files.length) || sending) return;
     sending = true;
     try {
@@ -93,13 +93,20 @@
       renderTray();
       setReply(null);
       D.syncComposer();
-      const { message } = await api('POST', `/api/rooms/${encodeURIComponent(roomId)}/messages`, { text, files, replyTo });
+      const { message } = await api('POST', `/api/rooms/${encodeURIComponent(roomId)}/messages`, { ...extra, text, files, replyTo });
       if (S.view !== 'chat' || S.roomId !== roomId) { S.messages = [message]; location.hash = `#/c/${encodeURIComponent(roomId)}`; } else D.onMessage(message);
     } catch (err) {
       if (err.message !== 'login') { input.value = text; D.syncComposer(); D.toast(err.message); }
     } finally { sending = false; }
   }
   D.sendText = (text) => { input.value = text; D.syncComposer(); return send(); };
+  D.sendWith = (text, extra) => { input.value = text; D.syncComposer(); return send(extra); };
+  // 첨부를 올릴 대화방: 빈 화면이면 먼저 새 채팅을 만든다.
+  D.uploadRoom = async () => {
+    if (S.view === 'chat') return S.roomId;
+    if (!S.draftRoom) S.draftRoom = (await api('POST', '/api/rooms', { name: '새 채팅', members: [chatAgentId()], mode: 'chat' })).room.id;
+    return S.draftRoom;
+  };
   const stop = () => safe(api('POST', `/api/rooms/${encodeURIComponent(S.roomId)}/stop`));
 
   // 온보딩 추천·팀 서비스: 입력창에 시작 문장을 넣고 이어서 쓰게 한다.
@@ -148,6 +155,8 @@
     compare: '같은 요청을 AI 1명과 팀이 따로 답합니다. 누가 썼는지 모르게 보고 고르세요.',
   };
   function insertCommand(id) {
+    // 크리틱은 용도·단계·장표를 고르는 시트에서 시작한다.
+    if (id === 'critique') return D.critiqueSheet(input.value.replace(/^\s*\/\S+\s*/, '').trim());
     const rest = input.value.replace(/^\s*\/\S+\s*/, '');
     input.value = COMMAND_PREFIX[id] + rest;
     D.syncComposer();
@@ -247,6 +256,8 @@
     if (msg.roomId === S.roomId && S.view === 'chat') {
       if (!S.messages.some((m) => m.id === msg.id)) {
         S.messages.push(msg);
+        // 크리틱이 다음 단계로 넘어가면 앞의 확인 카드도 다시 그린다.
+        if (D.critiqueOnMessage?.(msg)) nodes.clear();
         // 전체를 다시 그리지 않고 새 메시지만 붙인다 (스크롤이 튀지 않게).
         const holder = $('typingRows');
         if (holder && nodes.size) {
@@ -327,7 +338,8 @@
     const a = D.agent(m.sender);
     const meta = m.meta || {};
     const body = h('div', { class: 'ai-body' });
-    if (meta.kind === 'minutes' || meta.kind === 'team-report') buildReport(body, m);
+    if (meta.kind === 'critique-report') D.critiqueReport(body, m);
+    else if (meta.kind === 'minutes' || meta.kind === 'team-report') buildReport(body, m);
     else body.innerHTML = D.markdown(m.text);
     // 다음 작업: 누르면 바로 보내지 않고 입력창에 채워, 예상 호출 수를 보고 고쳐 보낼 수 있게 한다.
     if (meta.next?.length) {
@@ -361,6 +373,7 @@
     const k = m.meta?.kind;
     if (k === 'gate') return gateCard(m, room);
     if (k === 'compare') return compareCard(m, room);
+    if (k === 'critique-read') return D.critiqueReadCard(m, room);
     if (k === 'error' && m.meta?.needsLogin) {
       return h('div', { class: 'card warn' },
         h('b', {}, 'AI 연결이 필요해요'),

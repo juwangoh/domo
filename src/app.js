@@ -16,6 +16,8 @@ const { Uploads } = require('./uploads');
 const { Push } = require('./push');
 const { engines: defaultEngines } = require('./engines');
 const { Connections } = require('./connections');
+const critique = require('./critique');
+const { CritiqueStore, LocalAdapter, ExampleBank } = require('./critiques');
 const { AiSetup } = require('./setup');
 const { Evals } = require('./evals');
 const team = require('./team');
@@ -23,7 +25,7 @@ const { Skills, ACTIVATE_AT, MAX_ACTIVE, ARCHIVE_DAYS } = require('./skills');
 
 const COOKIE = 'aitalk';
 const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
 };
 const httpError = (status, message) => Object.assign(new Error(message), { status });
@@ -73,7 +75,9 @@ function createApp({
   const skills = new Skills(dataDir, workspace);
   skills.prune();
   skills.writeFiles();
-  const orch = new Orchestrator({ store, profiles, memory, plugins, engines, bus, workspace, evals, skills, connections, now });
+  const critiques = new CritiqueStore(new LocalAdapter(path.join(dataDir, 'critiques')));
+  const examples = new ExampleBank(critiques);
+  const orch = new Orchestrator({ store, profiles, memory, plugins, engines, bus, workspace, evals, skills, connections, critiques, examples, now });
 
   // 과거 대화 원문을 AI가 검색할 수 있도록 방마다 마크다운으로 남긴다.
   bus.on('message', (m) => {
@@ -232,6 +236,7 @@ function createApp({
       case 'me':
         return json(res, 200, {
           user: profiles.user, account: auth.account, agents: profiles.agents(), settings: profiles.settings,
+          critique: { purposes: Object.fromEntries(Object.entries(critique.PURPOSES).map(([k, p]) => [k, { label: p.label, weights: p.weights, lenses: p.lenses.map((l) => l.label) }])), stages: Object.fromEntries(Object.entries(critique.STAGES).map(([k, s]) => [k, { label: s.label, scores: s.scores }])), criteria: critique.CRITERIA.map(({ id, label }) => ({ id, label })), steps: critique.STEP_LABEL, examples: examples.status() },
           team: { plan: await orch.teamPlan().catch(() => ({})), commands: team.COMMANDS, tones: team.TONES, taskOptions: team.TASK_OPTIONS.map(({ id, label }) => ({ id, label })) },
           options: { personalities: PERSONALITIES, permissions: PERMISSIONS, models: MODELS, efforts: EFFORTS, templates: PERSONA_TEMPLATES, studioRoles: STUDIO_ROLES },
           tunnel: tunnel.state,
@@ -310,6 +315,18 @@ function createApp({
       case 'account':
         if (method === 'PATCH') { const a = auth.updateAccount(body); if (body.name) profiles.updateUser({ name: body.name }); bus.emit('agents', {}); return json(res, 200, { account: a }); }
         break;
+
+      case 'critiques': {
+        if (!parts[1] && method === 'GET') return json(res, 200, { critiques: critiques.list(), examples: examples.status() });
+        const C = critiques.get(parts[1]);
+        if (!C) throw httpError(404, '크리틱을 찾을 수 없습니다.');
+        const reply = (r, key) => { if (r.error) throw httpError(r.status || 400, r.error); return json(res, 200, { [key]: r[key] }); };
+        if (!parts[2] && method === 'GET') { const { private: _p, ...pub } = C; return json(res, 200, { critique: pub }); }
+        if (parts[2] === 'confirm' && method === 'POST') return reply(orch.confirmCritique(C.roomId, C.id, body), 'message');
+        if (parts[2] === 'issues' && parts[4] === 'verdict' && method === 'POST') return reply(critiques.setVerdict(C.id, parts[3], body.verdict, body.reason), 'issue');
+        if (parts[2] === 'outcome' && method === 'POST') return reply(critiques.setOutcome(C.id, body), 'outcome');
+        break;
+      }
 
       case 'profile':
         if (method === 'PATCH') { const u = profiles.updateUser(body); bus.emit('agents', {}); return json(res, 200, { user: u }); }
@@ -476,11 +493,24 @@ function createApp({
         if (sub === 'messages' && method === 'GET') return json(res, 200, { messages: store.messages(room.id), running: orch.isRunning(room.id) });
         if (sub === 'messages' && method === 'POST') {
           const files = (Array.isArray(body.files) ? body.files : []).map((id) => uploads.get(String(id))).filter(Boolean).slice(0, 8);
+          // 크리틱 시작 시트가 보낸 설정과 장표(번호·좌표축 사본). 파일은 이 서버에 올라온 것만 받는다.
+          let crit = null;
+          if (body.critique && typeof body.critique === 'object') {
+            const c = body.critique;
+            const slides = (Array.isArray(c.slides) ? c.slides : []).slice(0, 30).map((sl, i) => {
+              const view = uploads.get(String(sl?.fileId));
+              const ai = uploads.get(String(sl?.aiFileId)) || view;
+              if (!view || !ai) return null;
+              return { n: i + 1, fileId: view.id, url: view.url, name: String(sl.name || view.name).slice(0, 80), path: ai.path, image: ai.image, axis: ai.id !== view.id, width: Number(sl.width) || null, height: Number(sl.height) || null };
+            }).filter(Boolean).map((sl, i) => ({ ...sl, n: i + 1 }));
+            crit = { purpose: String(c.purpose || ''), stage: String(c.stage || ''), course: c.course, brief: c.brief, field: c.field, medium: c.medium, taskType: c.taskType, slides };
+          }
           const text = String(body.text || '').trim() || (files.length ? '(첨부)' : '');
           if (!text) throw httpError(400, '빈 메시지');
           if (text.length > 20000) throw httpError(400, '메시지가 너무 깁니다.');
           const meta = {};
           if (files.length) meta.files = files;
+          if (crit) meta.critique = crit;
           // 답장: 인용한 메시지의 보낸 사람과 앞부분을 함께 남긴다.
           const quoted = body.replyTo ? store.messages(room.id).find((m) => m.id === Number(body.replyTo)) : null;
           if (quoted) meta.reply = { id: quoted.id, sender: quoted.sender, excerpt: quoted.text.replace(/\s+/g, ' ').slice(0, 160) };
@@ -545,7 +575,7 @@ function createApp({
   });
   server.on('close', () => { scheduler.stop(); tunnel.shutdown(); });
 
-  return { server, store, auth, push, uploads, orch, profiles, memory, plugins, scheduler, tunnel, clients, evals, connections, skills, aiSetup };
+  return { server, store, auth, push, uploads, orch, profiles, memory, plugins, scheduler, tunnel, clients, evals, connections, skills, aiSetup, critiques, examples };
 }
 
 function json(res, status, body) {

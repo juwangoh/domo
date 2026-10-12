@@ -107,23 +107,13 @@ test('기본은 AI 1명: 새 채팅은 한 AI만 답하고, 첫 메시지로 제
   assert.equal(rooms.find((r) => r.id === chatId).name, '졸업전시 주제 고민 중이야');
 });
 
-test('/크리틱: 세 시점이 서로를 보지 않고 사용자 기준표로 채점 → 종합 리포트', async () => {
-  mockLog.length = 0;
+test('/크리틱: 먼저 읽기 확인을 보여 주고 멈춘다 (자세한 흐름은 v8)', async () => {
   const before = (await messages(chatId)).messages.length;
-  await api('POST', `/api/rooms/${chatId}/messages`, { text: '/크리틱 의자 콘셉트 보드야\n기준: 문제 정의, 소재 선택 근거, 형태 완성도' });
+  await api('POST', `/api/rooms/${chatId}/messages`, { text: '/크리틱 의자 콘셉트 보드야' });
   const msgs = (await idle(chatId)).slice(before);
-  const lens = msgs.filter((m) => m.meta?.lens);
-  assert.deepEqual(lens.map((m) => m.meta.lens).sort(), ['detail', 'professor', 'user']);
-  const report = msgs.at(-1);
-  assert.equal(report.meta.kind, 'team-report');
-  const lensPrompts = mockLog.filter((l) => l.prompt.includes('크리틱 리허설 ·') && !l.prompt.includes('종합'));
-  assert.equal(lensPrompts.length, 3);
-  for (const l of lensPrompts) {
-    assert.match(l.prompt, /소재 선택 근거/, '사용자 기준표가 들어감');
-    for (const m of lens) assert.ok(!l.prompt.includes(m.text), '다른 시점의 결과를 보지 않음');
-  }
-  const synth = mockLog.find((l) => l.prompt.includes('크리틱 리허설 · 종합'));
-  for (const m of lens) assert.ok(synth.prompt.includes(m.text), '종합은 세 시점을 모두 받음');
+  assert.equal(msgs.at(-1).meta.kind, 'critique-read');
+  await api('POST', `/api/rooms/${chatId}/messages`, { text: '/취소' });
+  assert.equal((await idle(chatId)).at(-1).meta.kind, 'stopped');
 });
 
 test('/리서치: 팩트시트 → 교차 검증(판정 포함), /검증: 직전 답을 한 번 검증', async () => {

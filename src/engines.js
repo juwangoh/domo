@@ -111,6 +111,9 @@ async function claudeEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, on
   if (agent.fallbackModel && agent.fallbackModel !== agent.model) args.push('--fallback-model', agent.fallbackModel);
   if (agent.effort) args.push('--effort', agent.effort);
   if (agent.noTools) args.push('--tools', '');
+  else if (agent.tools?.length) args.push('--tools', agent.tools.join(','));
+  // 가볍게: 사용자의 Claude Code 에 등록된 MCP 서버·스킬 설명을 싣지 않는다. 호출마다 붙는 글자가 크게 줄어 한도를 아낀다.
+  if (agent.lean) args.push('--strict-mcp-config', '--disable-slash-commands');
   if (agent.mcpConfig) args.push('--mcp-config', agent.mcpConfig);
   if (agent.allowedTools?.length) args.push('--allowedTools', agent.allowedTools.join(','));
   if (agent.disallowedTools?.length) args.push('--disallowedTools', agent.disallowedTools.join(','));
@@ -149,15 +152,37 @@ async function claudeEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, on
   return {
     text: json.result.trim(),
     sessionId: json.session_id || sessionId,
-    meta: { costUsd: json.total_cost_usd, ms: json.duration_ms },
+    meta: { costUsd: json.total_cost_usd, ms: json.duration_ms, ...tokens(json.usage) },
   };
 }
 
+// 토큰 사용량 (엔진마다 이름이 달라서 여기서 맞춘다. 알 수 없으면 비워 둔다)
+function tokens(u) {
+  if (!u || typeof u !== 'object') return {};
+  const n = (...keys) => keys.reduce((a, k) => a + (Number(u[k]) || 0), 0);
+  // Claude 는 캐시 토큰을 따로 세고, Codex 는 input_tokens 에 이미 포함한다.
+  return { tokensIn: n('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'), tokensOut: n('output_tokens') };
+}
+
 // ── Codex CLI ──────────────────────────────────────────────────
-async function codexEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onEvent, images = [] }) {
+// 고른 모델을 이 계정에서 쓸 수 없으면(구독 종류에 따라 다르다) Codex 가 권하는 기본 모델로 한 번 더 시도한다.
+async function codexEngine(params) {
+  try {
+    return await codexOnce(params);
+  } catch (err) {
+    if (!params.agent.model || !/model.{0,80}not supported|model.{0,40}does not exist|unknown model/i.test(err.message)) throw err;
+    const res = await codexOnce({ ...params, agent: { ...params.agent, model: '' } });
+    res.meta.modelFallback = params.agent.model;
+    return res;
+  }
+}
+
+async function codexOnce({ prompt, sessionId, agent, cwd, signal, onSpawn, onEvent, images = [] }) {
   const outFile = path.join(os.tmpdir(), `aitalk-codex-${crypto.randomUUID()}.txt`);
   const sandbox = agent.sandbox || 'read-only';
-  const common = ['--json', '--skip-git-repo-check', '-o', outFile];
+  // 사용자의 Codex 설정 파일(모델, 외부 도구 연결)은 쓰지 않는다. 모델은 DOMO 에서 고른 것을 쓰고,
+  // 설정 파일의 모델이 이 계정에서 안 되거나 외부 도구가 응답을 오래 붙잡는 문제를 피한다. 로그인 정보는 그대로 쓴다.
+  const common = ['--json', '--skip-git-repo-check', '--ignore-user-config', '-o', outFile];
   if (agent.model) common.push('-m', agent.model);
   if (agent.effort) common.push('-c', `model_reasoning_effort="${agent.effort}"`);
   for (const img of images) common.push('-i', img);
@@ -186,6 +211,7 @@ async function codexEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onE
   }
   let threadId = sessionId;
   let text = '';
+  let usage = null;
   const errors = [];
   for (const line of r.stdout.split('\n')) {
     if (!line.startsWith('{')) continue;
@@ -193,6 +219,7 @@ async function codexEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onE
     try { ev = JSON.parse(line); } catch { continue; }
     if (ev.type === 'thread.started' && ev.thread_id) threadId = ev.thread_id;
     else if (ev.type === 'item.completed' && ev.item?.type === 'agent_message' && ev.item.text) text = ev.item.text;
+    else if (ev.type === 'turn.completed' && ev.usage) usage = ev.usage;
     else if (ev.type === 'error' && ev.message) errors.push(ev.message);
     else if (ev.type === 'turn.failed' && ev.error?.message) errors.push(ev.error.message);
   }
@@ -206,7 +233,7 @@ async function codexEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onE
     const msg = [...new Set(errors)].join(' / ') || r.stderr.trim().slice(-500) || `codex 종료 코드 ${r.code}`;
     throw new EngineError(msg, { sessionProblem: !!sessionId && looksLikeSessionProblem(msg) });
   }
-  return { text: text.trim(), sessionId: threadId, meta: { ms: Date.now() - started } };
+  return { text: text.trim(), sessionId: threadId, meta: { ms: Date.now() - started, ...tokens(usage) } };
 }
 
 // ── Mock (비용 없는 테스트용) ──────────────────────────────────
@@ -226,7 +253,10 @@ async function mockEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onEv
   let reply;
   const role = agent.role || '';
   const stage = prompt.match(/\[단계: ([^\]]+)\]/)?.[1];
-  if (stage) {
+  const critStep = prompt.match(/\[크리틱 단계: (\w+)\]/)?.[1];
+  if (critStep) {
+    reply = mockCritique(critStep, prompt, agent);
+  } else if (stage) {
     reply = mockStudio(stage, prompt, agent);
   } else if (role === 'curator') {
     // 기억 정리 테스트: '#remember 내용' 이 있으면 사용자 정보로 기억한다.
@@ -271,6 +301,29 @@ async function mockEngine({ prompt, sessionId, agent, cwd, signal, onSpawn, onEv
   const r = await runProcess(process.execPath, ['-e', script], { cwd, signal, timeoutMs: agent.timeoutMs, onSpawn });
   if (r.code !== 0) throw new EngineError(r.stderr || 'mock 오류');
   return { text: JSON.parse(r.stdout).result, sessionId: sid, meta: { ms: delay } };
+}
+
+// 크리틱 단계별 mock 응답. 요청에 #broken 이 있으면 형식을 어긴 글을 돌려준다.
+function mockCritique(step, prompt, agent) {
+  if (prompt.includes('#broken') && step === 'lens') return `${agent.name}: 형식 없이 쓴 크리틱 글`;
+  if (step === 'read') return JSON.stringify({ concept: '테스트 컨셉 한 문장', context: '테스트 사이트', target: '테스트 사용자', slides: [{ n: 1, role: '표지' }, { n: 2, role: '리서치' }], facts: ['장표에 적힌 사실'], assumptions: ['화장실 위치는 미확인'] });
+  if (step === 'lens') {
+    const idea = prompt.includes('아이디어 단계다');
+    return `\`\`\`json\n${JSON.stringify({
+      scores: idea ? [] : ['문제 정의', '리서치 근거', '컨셉 명확성', '형태·디테일', '전달력'].map((c, i) => ({ criterion: c, score: 2 + (i % 3), reason: `${c} 근거` })),
+      issues: [
+        { criterion: '리서치 근거', standard: '핵심 수치에는 출처가 있어야 한다', gap: `${agent.name}: 수치에 출처가 없다`, fixes: [{ type: '안전', text: '출처를 각주로 단다' }, { type: '실험', text: '수치를 현장 사진으로 대체한다' }], evidence_type: '확인된 사실', severity: '높음', where: '2번 장표 표' },
+        { criterion: '전달력', standard: '이미지 흐름만으로 읽혀야 한다', gap: '텍스트가 많아 보인다', fixes: [{ type: '안전', text: '문단을 줄인다' }, { type: '실험', text: '다이어그램 하나로 바꾼다' }, { type: '절충', text: '핵심 문장만 남긴다' }], evidence_type: '추정', severity: '중간', where: '1번' },
+      ],
+      questions: [`${agent.name}의 질문 1`, `${agent.name}의 질문 2`],
+    })}\n\`\`\``;
+  }
+  if (step === 'check') return JSON.stringify({ checks: [{ kind: '숫자', item: '조합표 합계', result: '문제', note: '표 합계 12, 타임라인 합계 14', slide: 2 }, { kind: '일관성', item: '프로젝트 이름', result: '통과', note: '모든 장표에서 같음', slide: null }] });
+  if (step === 'locate') {
+    const ids = [...prompt.matchAll(/^- ([a-z]\d): /gm)].map((m) => m[1]);
+    return JSON.stringify({ locations: ids.map((id, i) => ({ id, slide: (i % 2) + 1, region: '좌측 하단', x: [0, 40], y: [60, 100], target: '범례' })) });
+  }
+  return JSON.stringify({ summary: '근거 표기가 가장 급하다', top3: [{ title: '수치 출처 달기', why: '세 시점이 모두 짚음', issue_ids: ['p1'] }, { title: '텍스트 줄이기', why: '전달력', issue_ids: ['p2'] }], qa: [{ q: '수치는 어디서 왔나요?', a: '출처를 말한다' }] });
 }
 
 // 스튜디오 단계별 mock 응답. 요청에 #실행 / #학습 이 있으면 그 유형으로 분류한다.

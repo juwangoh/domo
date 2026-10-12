@@ -11,6 +11,10 @@ const { PERSONALITIES, PERMISSIONS, MODELS, STUDIO_ROLES, PERSONA_TEMPLATES, sou
 const { localDate } = require('./scheduler');
 const studio = require('./studio');
 const team = require('./team');
+const critique = require('./critique');
+
+// 팀 작업의 호출 1회 제한 시간. 넘기면 실패로 보고 대신 맡을 AI 에게 넘긴다.
+const TEAM_TIMEOUT_MS = 5 * 60 * 1000;
 const { looksLikeLoginProblem } = require('./connections');
 
 const VERDICT_RE = /^\s*[*_`]*\s*판정\s*[:：]\s*[*_`]*\s*(통과|수정\s*필요)\s*[*_`.]*\s*$/m;
@@ -22,8 +26,10 @@ const MODES = ['studio', 'work', 'meeting', 'review', 'chat'];
 const ASSIGN_RE = /^\s*[-*•]?\s*@?([^:：\n]{1,20}?)\s*[:：]\s*(.+)$/;
 
 class Orchestrator {
-  constructor({ store, profiles, memory, plugins, engines, bus, workspace, evals = null, skills = null, connections = null, now = () => new Date() }) {
+  constructor({ store, profiles, memory, plugins, engines, bus, workspace, evals = null, skills = null, connections = null, critiques = null, examples = null, now = () => new Date() }) {
     this.connections = connections;
+    this.critiques = critiques;
+    this.examples = examples;
     this.evals = evals;
     this.skills = skills;
     this.store = store;
@@ -52,7 +58,7 @@ class Orchestrator {
     // Claude 앱처럼: "새 채팅"은 첫 메시지로 제목을 정한다.
     const room = this.store.getRoom(roomId);
     if (room && room.name === '새 채팅' && this.store.messages(roomId).filter((m) => m.sender === 'user').length === 1) {
-      const firstLine = team.stripCommand(text).split('\n').map((l) => l.trim()).find(Boolean) || '';
+      const firstLine = team.stripCommand(text).replace(/(용도|단계)\s*[:：]\s*\S+\s*/g, '').split('\n').map((l) => l.trim()).find(Boolean) || '';
       const title = firstLine || team.COMMANDS[team.commandOf(text)]?.label || '새 채팅';
       this.store.updateRoom(roomId, { name: title.slice(0, 30) });
       this.bus.emit('rooms', {});
@@ -115,7 +121,8 @@ class Orchestrator {
       const mode = only ? 'chat' : this.modeFor({ ...room, members }, triggerText);
       // 기본은 AI 1명. 1:1 채팅에서도 팀 서비스·스튜디오를 부르면 프로필 전체에서 역할별로 팀을 꾸린다.
       const crew = members.length > 1 ? members : this.teamIds();
-      if (cmd) await this.teamService(cmd, room, crew, job, triggerText);
+      if (room.critique?.awaiting && !cmd && !only) await this.resumeCritique(room, crew, job, triggerText);
+      else if (cmd) await this.teamService(cmd, room, crew, job, triggerText);
       else if (mode === 'studio' && crew.length > 1) await this.studioLoop(room, crew, job, triggerText);
       else if (mode === 'work' && members.length > 1) await this.workLoop(room, members, job);
       else if (mode === 'meeting' && members.length > 1) await this.meetingLoop(room, members, job);
@@ -155,7 +162,15 @@ class Orchestrator {
   teamIds() { return this.profiles.agents().map((a) => a.id); }
 
   // 대화에 바로 올리지 않고 답만 받는다 (병렬 실행용). 실패하면 오류를 남기고 null.
-  async ask(room, agent, job, prompt) {
+  // 팀 작업용 실행 설정: 가볍게 부르고(등록된 MCP·스킬 설명을 싣지 않음), 모델을 정하지 않은 Claude 는 팀 기본 모델을 쓴다.
+  teamAgent(agent, room, { model = null, tools = null, noTools = false } = {}) {
+    const rt = this.runtimeAgent(agent, room);
+    const perm = PERMISSIONS[agent.permission] || PERMISSIONS.read;
+    const pick = model || rt.model || (agent.engine === 'claude' ? this.profiles.settings.teamModel : '') || '';
+    return { ...rt, model: pick, lean: true, noTools, tools: tools || perm.claude.allow, timeoutMs: rt.timeoutMs || TEAM_TIMEOUT_MS };
+  }
+
+  async ask(room, agent, job, prompt, { model = null, images = null, tools = null, noTools = false } = {}) {
     const signal = job.controller.signal;
     if (signal.aborted) throw Object.assign(new Error('중단됨'), { aborted: true });
     const engine = this.engines[agent.engine];
@@ -164,8 +179,8 @@ class Orchestrator {
     const t0 = Date.now();
     try {
       const res = await engine({
-        prompt, sessionId: null, agent: this.runtimeAgent(agent, room), cwd: this.workspace, signal,
-        onEvent: this.activity(room, agent), images: this.imagesFor(room),
+        prompt, sessionId: null, agent: this.teamAgent(agent, room, { model, tools, noTools }), cwd: this.workspace, signal,
+        onEvent: this.activity(room, agent), images: images || this.imagesFor(room),
         onSpawn: (child) => { job.children.add(child.pid); child.on('close', () => job.children.delete(child.pid)); },
       });
       res.meta = { ...(res.meta || {}), ms: res.meta?.ms || Date.now() - t0 };
@@ -233,7 +248,8 @@ class Orchestrator {
     const second = c.codex && c.codex.id !== c.primary.id ? c.codex : Object.values(this.agents).find((a) => a.id !== c.primary.id && ready(a)) || c.primary;
     const joiner = (critic || lead).id !== c.primary.id ? (critic || lead) : c.primary;
     return {
-      critique: plan([critic || c.primary, concept || critic || c.primary, c.codex || critic || c.primary, lead]),
+      // 읽기 확인 1 → (내 확인) → 시점 3 → 검증 1 → 위치 지정 1 → 종합 1
+      critique: plan([lead, critic || c.primary, concept || critic || c.primary, c.codex || critic || c.primary, c.verifierAny || c.primary, lead, lead], { note: '읽기 확인 뒤 내 확인을 기다립니다' }),
       research: plan([c.researcher, c.verifier, lead], c.verifier ? {} : { note: `교차 검증 생략 (${skip})` }),
       verify: plan([c.verifierAny || c.primary], c.verifierAny ? {} : { note: `${skip} · 같은 회사 모델이 대신 확인` }),
       compare: plan([c.primary, c.primary, second, joiner]),
@@ -253,26 +269,7 @@ class Orchestrator {
 
     if (cmd === 'concept') return this.studioLoop(room, crew, job, `/스튜디오 ${request}`);
 
-    if (cmd === 'critique') {
-      const rubric = team.rubricFrom(request, principles);
-      // 시점마다 다른 팀원 (가능하면 디테일은 다른 회사 모델) · 서로의 결과를 보지 않는다
-      const who = [A(R.critic) || primary, A(R.concept) || A(R.critic) || primary, codex || A(R.critic) || primary];
-      this.post(room.id, 'system', `크리틱 리허설 · ${team.LENSES.map((l, i) => `${l.label}(${who[i].name})`).join(' · ')}이 서로를 보지 않고 채점합니다`, { kind: 'stage', team: 'critique' });
-      const reviews = await Promise.all(team.LENSES.map(async (lens, i) => {
-        const res = await this.ask(room, who[i], job, team.prompts.lens({ request, rubric, principles, lens, files }));
-        if (res) this.post(room.id, who[i].id, res.text, this.teamMeta(who[i], res, { team: 'critique', lens: lens.id, label: lens.label, collapsed: true }));
-        return res ? { label: lens.label, text: res.text } : null;
-      }));
-      const ok = reviews.filter(Boolean);
-      if (!ok.length) return;
-      const lead = A(R.pm) || primary;
-      const res = await this.ask(room, lead, job, team.prompts.synth({ request, rubric, reviews: ok }));
-      if (!res) return;
-      const tasks = this.extractTasks(res.text, room);
-      if (tasks.length) this.bus.emit('memory', {});
-      this.post(room.id, lead.id, res.text, this.teamMeta(lead, res, { kind: 'team-report', team: 'critique', label: '크리틱 리포트', tasks }));
-      return;
-    }
+    if (cmd === 'critique') return this.startCritique(room, crew, job, text, lastUser);
 
     if (cmd === 'research') {
       this.post(room.id, 'system', verifier
@@ -315,6 +312,144 @@ class Orchestrator {
     }
 
     if (cmd === 'compare') return this.compare(room, primary, codex, A(R.critic) || A(R.pm), job, request);
+  }
+
+  // ── 크리틱 리허설 (src/critique.js) ─────────────────
+  // ① 읽기 확인 → 사용자 수정 → ② 시점별 크리틱 ×3 → ③ 검증 → ④ 위치 지정 → ⑤ 종합. 호출마다 비용을 기록한다.
+  stepModel(step, agent) {
+    const id = this.profiles.settings.critiqueModels?.[step];
+    return id && MODELS[agent.engine]?.some((m) => m.id === id) ? id : null;
+  }
+
+  // fallback: 맡은 AI 가 답하지 못하면(다른 회사 모델의 설정 문제 등) 대신 맡을 AI
+  async askStep(room, agent, job, C, step, prompt, fallback = null) {
+    let model = this.stepModel(step, agent);
+    // 크리틱은 장표를 읽기만 하면 된다. 종합은 글만 받으므로 도구가 필요 없다.
+    const lean = step === 'synth' ? { noTools: true } : { tools: ['Read'] };
+    let res = await this.ask(room, agent, job, prompt, { model, ...lean, images: C.slides.filter((x) => x.image).map((x) => x.path) });
+    if (!res && fallback && fallback.id !== agent.id) {
+      this.post(room.id, 'system', `${agent.name}가 답하지 못해 ${fallback.name}가 대신 ${critique.STEP_LABEL[step]}을 맡습니다`, { kind: 'stage', team: 'critique' });
+      agent = fallback;
+      model = this.stepModel(step, agent);
+      res = await this.ask(room, agent, job, prompt, { model, ...lean, images: C.slides.filter((x) => x.image).map((x) => x.path) });
+    }
+    if (res) {
+      this.critiques.logCall(C.id, {
+        step, agentId: agent.id, engine: agent.engine, model: model || agent.model || (agent.engine === 'claude' ? this.profiles.settings.teamModel : '') || '',
+        ms: res.meta?.ms || 0, costUsd: res.meta?.costUsd || 0, tokensIn: res.meta?.tokensIn || 0, tokensOut: res.meta?.tokensOut || 0,
+      });
+    }
+    return res;
+  }
+
+  async startCritique(room, crew, job, text, lastUser) {
+    if (!this.critiques) return;
+    const ready = await this.readyCheck();
+    const { R, A, primary } = this.cast(crew, room.members[0], ready);
+    const opt = critique.parseOptions(text);
+    const m = lastUser?.meta?.critique || {};
+    const purpose = critique.PURPOSES[m.purpose] ? m.purpose : opt.purpose;
+    const stage = critique.STAGES[m.stage] ? m.stage : opt.stage;
+    // 장표: 시작 시트가 번호·좌표축을 붙여 보낸 것을 쓰고, 없으면 첨부 순서대로 번호를 매긴다.
+    const slides = m.slides?.length ? m.slides
+      : (lastUser?.meta?.files || []).filter((f) => f.image || f.type === 'application/pdf').map((f, i) => ({ n: i + 1, fileId: f.id, path: f.path, url: f.url, name: f.name, image: f.image, axis: false }));
+    const C = this.critiques.create({
+      roomId: room.id, purpose, stage, request: opt.request, input: m, slides,
+      principles: this.memory.principlesText ? this.memory.principlesText() : '',
+      consent: !!this.profiles.settings.dataConsent, person: { name: this.profiles.user.name },
+    });
+    room.critique = { id: C.id, awaiting: null };
+    const lead = A(R.pm) || primary;
+    this.post(room.id, 'system', `크리틱 리허설 · ${critique.PURPOSES[purpose].label} · ${critique.STAGES[stage].label} 단계 · 먼저 ${lead.name}가 결과물을 어떻게 읽었는지 보여 드립니다`, { kind: 'stage', team: 'critique' });
+    const res = await this.askStep(room, lead, job, C, 'read', critique.prompts.read(C));
+    if (!res) { room.critique = null; this.critiques.update(C.id, { status: 'failed' }); this.saveProject(room); return; }
+    const ai = critique.parseRead(res.text, slides);
+    this.critiques.update(C.id, { status: 'confirm', read: { ai, final: null, confirmedFacts: [], edited: false } });
+    room.critique.awaiting = 'read';
+    this.saveProject(room);
+    this.post(room.id, 'system', '제가 이해한 내용이 맞는지 확인해 주세요. 틀린 곳을 고치고, 직접 확인한 사실이 있으면 적어 주세요.', { kind: 'critique-read', critiqueId: C.id });
+  }
+
+  // 화면의 읽기 확인 카드에서 "크리틱 시작"을 눌렀을 때
+  confirmCritique(roomId, id, body = {}) {
+    const room = this.store.getRoom(roomId);
+    const C = this.critiques?.get(id);
+    if (!room || !C || room.critique?.id !== id || room.critique.awaiting !== 'read') return { error: '확인을 기다리는 크리틱이 아닙니다.', status: 409 };
+    if (this.isRunning(roomId)) return { error: '진행 중입니다. 잠시 후 다시 시도해 주세요.', status: 409 };
+    const final = critique.cleanRead(body.read, C.read.ai);
+    const confirmedFacts = critique.linesOf(body.confirmedFacts);
+    const edited = JSON.stringify(final) !== JSON.stringify({ ...C.read.ai, raw: undefined });
+    this.critiques.update(id, { read: { ...C.read, final, confirmedFacts, edited } });
+    const note = [edited ? '이해 요약을 고침' : '', confirmedFacts.length ? `직접 확인한 사실 ${confirmedFacts.length}개` : ''].filter(Boolean).join(' · ');
+    return { message: this.userMessage(roomId, `읽기 확인 완료${note ? ` · ${note}` : ''}`, { critiqueConfirm: id }) };
+  }
+
+  async resumeCritique(room, crew, job, text) {
+    const C = this.critiques?.get(room.critique.id);
+    const closeWith = (msg) => { room.critique = null; this.saveProject(room); if (msg) this.post(room.id, 'system', msg, { kind: 'stopped' }); };
+    if (!C) return closeWith('');
+    if (studio.CANCEL_RE.test(text)) { this.critiques.update(C.id, { status: 'cancelled' }); return closeWith('크리틱을 닫았습니다.'); }
+    const lastUser = [...this.store.messages(room.id)].reverse().find((x) => x.sender === 'user');
+    // 카드 대신 글로 답한 경우: "그대로"면 그대로, 아니면 적은 줄을 직접 확인한 사실로 받는다.
+    if (lastUser?.meta?.critiqueConfirm !== C.id) {
+      const plain = String(lastUser?.text || '').trim();
+      const asIs = /^(그대로|맞아|맞음|확인|시작|패스|ok|okay|네|응)\b/i.test(plain);
+      this.critiques.update(C.id, { read: { ...C.read, final: C.read.ai, confirmedFacts: asIs ? [] : critique.linesOf(plain), edited: false } });
+    }
+    room.critique.awaiting = null;
+    this.saveProject(room);
+    await this.runCritique(room, crew, job, this.critiques.get(C.id));
+  }
+
+  async runCritique(room, crew, job, C) {
+    const ready = await this.readyCheck();
+    const { R, A, primary, codex, verifierAny } = this.cast(crew, room.members[0], ready);
+    const P = critique.PURPOSES[C.purpose];
+    const stage = critique.STAGES[C.stage];
+    const lead = A(R.pm) || primary;
+    // 시점마다 다른 팀원 (가능하면 디테일은 다른 회사 모델) · 서로의 결과를 보지 않는다
+    const who = [A(R.critic) || primary, A(R.concept) || A(R.critic) || primary, codex || A(R.critic) || primary];
+    const tags = { ...C.input, purpose: C.purpose, stage: C.stage };
+    const examples = this.examples?.pick(tags) || [];
+    this.critiques.update(C.id, { status: 'running', exampleCount: examples.length });
+    this.post(room.id, 'system', `시점별 크리틱 · ${P.lenses.map((l, i) => `${l.label}(${who[i].name})`).join(' · ')}이 서로를 보지 않고 봅니다`, { kind: 'stage', team: 'critique' });
+    const done = await Promise.all(P.lenses.map(async (lens, i) => {
+      const res = await this.askStep(room, who[i], job, C, 'lens', critique.prompts.lens(C, lens, examples), A(R.critic) || primary);
+      return res ? { lens, agent: who[i], ...critique.parseLens(res.text, lens, { scores: stage.scores }) } : null;
+    }));
+    const ok = done.filter(Boolean);
+    if (!ok.length) { this.critiques.update(C.id, { status: 'failed' }); room.critique = null; this.saveProject(room); return; }
+    const issues = ok.flatMap((l) => l.issues);
+    const questions = ok.flatMap((l) => l.questions.map((q) => ({ viewpoint: l.lens.label, text: q })));
+    const raw = ok.filter((l) => l.raw).map((l) => ({ label: l.lens.label, text: l.raw }));
+    const table = stage.scores ? critique.scoreTable(ok.map((l) => ({ label: l.lens.label, scores: l.scores })), C.purpose) : null;
+    C = this.critiques.update(C.id, { lenses: ok.map((l) => ({ id: l.lens.id, label: l.lens.label, agentId: l.agent.id, scores: l.scores })), issues, questions, raw, table });
+
+    // 검증: 의견이 아니라 숫자·일관성·체크리스트만
+    const checker = verifierAny || primary;
+    this.post(room.id, 'system', `검증 · ${checker.name}가 숫자·장표 간 일관성${P.checklist.length ? `·${P.label} 체크리스트` : ''}를 확인합니다`, { kind: 'stage', team: 'critique' });
+    const auto = critique.autoChecks(C.purpose, C.slides);
+    const chk = await this.askStep(room, checker, job, C, 'check', critique.prompts.check(C, auto), primary);
+    const checks = [...auto, ...(chk ? critique.parseCheck(chk.text) : [])];
+    C = this.critiques.update(C.id, { checks, checkSkipped: !chk });
+
+    // 위치 지정: 지적 글에 장표 번호와 영역만 붙인다
+    if (C.slides.length && issues.length) {
+      const loc = await this.askStep(room, lead, job, C, 'locate', critique.prompts.locate(C, issues));
+      const map = loc ? critique.parseLocate(loc.text, C.slides.length) : {};
+      for (const x of issues) if (map[x.id]) x.location = { ...x.location, ...map[x.id] };
+      C = this.critiques.update(C.id, { issues });
+    }
+
+    const syn = await this.askStep(room, lead, job, C, 'synth', critique.prompts.synth(C, { issues, checks, table: table ? critique.tableText(table) : '' }));
+    const synth = syn ? critique.parseSynth(syn.text) : { summary: '', top3: [], qa: [] };
+    if (synth.raw) raw.push({ label: '종합', text: synth.raw });
+    C = this.critiques.update(C.id, { synth, raw, status: 'done', finishedAt: Date.now() });
+    const tasks = this.extractTasks(synth.top3.map((t) => `- [ ] ${t.title} (담당: 나)`).join('\n'), room);
+    if (tasks.length) this.bus.emit('memory', {});
+    room.critique = { id: C.id, awaiting: null };
+    this.saveProject(room);
+    this.post(room.id, lead.id, critique.reportText(C), { kind: 'critique-report', team: 'critique', label: '크리틱 리포트', critiqueId: C.id, tasks, model: lead.model || '', ms: C.totals.ms, costUsd: C.totals.costUsd || undefined });
   }
 
   // 블라인드 비교: 같은 요청을 ① AI 1명 ② 팀(서로 다른 두 AI가 따로 초안 → 종합)으로 받아 섞어 보여준다.
@@ -405,7 +540,7 @@ class Orchestrator {
       if (agent) this.profiles.updateAgent(agent.id, patch);
       else {
         const engine = role === 'verifier' && this.profiles.agents().some((a) => a.engine === 'codex') ? 'codex' : (useMock ? 'mock' : 'claude');
-        this.profiles.createAgent({ ...patch, name, title: tpl.title, emoji: tpl.emoji, color: tpl.color, engine, model: engine === 'claude' && role !== 'producer' ? 'claude-sonnet-5' : '' });
+        this.profiles.createAgent({ ...patch, name, title: tpl.title, emoji: tpl.emoji, color: tpl.color, engine, model: engine === 'claude' && role !== 'producer' ? this.profiles.settings.teamModel || '' : '' });
       }
     }
     const producer = this.profiles.agents().find((a) => a.studioRole === 'producer');

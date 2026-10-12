@@ -283,6 +283,7 @@
         })()),
       section('자동 기억', null,
         h('label', { class: 'switch-row' }, h('span', { class: 'grow' }, h('b', {}, '대화가 끝나면 기억하기'), h('span', {}, '내 정보·프로젝트·과제·대화 요약을 정리')), D.toggle(st.autoMemory, (v) => safe(api('PATCH', '/api/settings', { autoMemory: v }).then(D.loadMe))))),
+      critiqueSection(st),
       updateSection(),
       section('계정', null, h('div', { class: 'row-gap' },
         h('button', { class: 'btn-ghost small', type: 'button', onclick: passwordSheet }, '비밀번호 변경'),
@@ -293,6 +294,29 @@
   }
 
   // 앱 업데이트 (데스크톱 앱으로 실행했을 때만 보인다): 새 버전이 있으면 버튼 하나로 내려받아 다시 켠다.
+  // 크리틱: 데이터 활용 동의, 단계별 모델(단순한 단계는 저렴한 모델로 돌릴 수 있게)
+  function critiqueSection(st) {
+    const K = S.me.critique;
+    const models = S.me.options.models.claude.filter((m) => m.id);
+    const cur = { ...(st.critiqueModels || {}) };
+    const save = (patch) => safe(api('PATCH', '/api/settings', patch).then(D.loadMe));
+    const pickRow = (step) => {
+      const sel = h('select', { class: 'auth-input', 'aria-label': `${K.steps[step]} 모델`, onchange: (e) => { cur[step] = e.target.value; save({ critiqueModels: { read: '', lens: '', check: '', locate: '', synth: '', ...cur } }); } },
+        h('option', { value: '' }, '담당 AI의 모델 그대로'), models.map((m) => h('option', { value: m.id, selected: cur[step] === m.id }, `${m.label} · ${m.desc}`)));
+      return h('label', { class: 'model-row' }, h('span', {}, K.steps[step]), sel);
+    };
+    const ex = K.examples;
+    return section('크리틱', '크리틱 기록(장표, 지적, 내 판정, 실제 결과)은 이 컴퓨터에만 저장됩니다.',
+      h('label', { class: 'switch-row' }, h('span', { class: 'grow' }, h('b', {}, '내 판정을 예시로 활용'), h('span', {}, `내가 "맞음"으로 판정한 지적을 다음 크리틱의 참고 예시로 씁니다. 지금 ${ex.count}개 · ${ex.min}개가 모이면 켜져요.`)),
+        D.toggle(st.dataConsent, (v) => save({ dataConsent: v }))),
+      h('details', { class: 'crit-more' }, h('summary', {}, '단계별 모델 (비용 조절)'),
+        h('p', { class: 'page-note' }, '팀 작업(크리틱·리서치 등)에서 모델을 따로 정하지 않은 Claude는 "팀 작업 기본" 모델을 씁니다. 단순한 단계는 더 가벼운 모델로 바꿔 한도를 아낄 수 있어요.'),
+        h('label', { class: 'model-row' }, h('span', {}, '팀 작업 기본'),
+          h('select', { class: 'auth-input', 'aria-label': '팀 작업 기본 모델', onchange: (e) => save({ teamModel: e.target.value }) },
+            h('option', { value: '' }, 'Claude Code 기본값'), models.map((m) => h('option', { value: m.id, selected: st.teamModel === m.id }, `${m.label} · ${m.desc}`)))),
+        ['read', 'lens', 'check', 'locate', 'synth'].map(pickRow)));
+  }
+
   function updateSection() {
     const text = h('span', { class: 'grow' });
     const btn = h('button', { class: 'btn-ghost small', type: 'button' });
