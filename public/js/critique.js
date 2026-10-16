@@ -148,7 +148,7 @@
           })) : null,
         area('facts', '확인된 사실로 보이는 것 (한 줄에 하나)', ''),
         area('assumptions', '가정으로 보이는 것 (한 줄에 하나)', ''),
-        area('confirmed', '내가 직접 확인한 사실', '예) 화장실 위치는 현장 답사로 확인함\n여기에 적은 내용은 모든 시점이 확인된 사실로 봅니다.', 2),
+        area('confirmed', '내가 직접 확인한 사실', '예) 화장실 위치는 현장 답사로 확인함\n여기에 적은 내용은 모든 관점에서 확인된 사실로 봅니다.', 2),
         h('div', { class: 'card-actions' }, go, h('button', { class: 'btn-ghost small', type: 'button', onclick: () => D.sendText('/취소') }, '크리틱 닫기')),
       ].filter(Boolean));
     });
@@ -157,6 +157,9 @@
 
   // ── 리포트 ───────────────────────────────────
   const SEV = { 높음: 'revise', 중간: '', 낮음: '' };
+  const FIX_HINT = { 안전: '확실하게 나아지는 무난한 방법', 실험: '결과가 달라질 수 있는 과감한 방법', 절충: '두 방향의 중간' };
+  // 저장 값은 그대로 두고 화면에서만 쉬운 말로 보여 준다.
+  const VERDICT_SAY = { 맞음: '맞아요', 오판: '틀려요', 애매: '애매해요' };
   function slideFigure(C, loc) {
     const s = C.slides.find((x) => x.n === loc?.slide);
     if (!s?.url || s.image === false) return null;
@@ -169,7 +172,7 @@
     const draw = (editing) => {
       if (x.user_verdict !== '미판정' && !editing) {
         row.replaceChildren(
-          h('span', { class: `tag ${x.user_verdict === '맞음' ? 'pass' : x.user_verdict === '오판' ? 'revise' : ''}` }, `내 판정 · ${x.user_verdict}`),
+          h('span', { class: `tag ${x.user_verdict === '맞음' ? 'pass' : x.user_verdict === '오판' ? 'revise' : ''}` }, `내 판정 · ${VERDICT_SAY[x.user_verdict] || x.user_verdict}`),
           h('span', { class: 'crit-reason' }, x.user_reason),
           h('button', { class: 'link-btn', type: 'button', onclick: () => draw(true) }, '고치기'));
         return;
@@ -183,14 +186,14 @@
       const sync = () => { save.disabled = !pick || !why.value.trim(); };
       why.addEventListener('input', sync);
       const form = h('div', { class: 'crit-verdict-form', hidden: !pick }, why, save);
-      const btns = h('div', { class: 'crit-verdict-btns' }, h('span', { class: 'crit-verdict-q' }, '이 지적, 맞나요?'),
+      const btns = h('div', { class: 'crit-verdict-btns' }, h('span', { class: 'crit-verdict-q' }, '이 피드백, 맞나요?'),
         ['맞음', '오판', '애매'].map((vv) => h('button', { class: `chip-btn${pick === vv ? ' on' : ''}`, type: 'button', 'aria-pressed': String(pick === vv), onclick: (e) => {
           pick = vv;
           for (const b of btns.querySelectorAll('.chip-btn')) { b.classList.toggle('on', b === e.currentTarget); b.setAttribute('aria-pressed', String(b === e.currentTarget)); }
           form.hidden = false;
           sync();
           why.focus();
-        } }, vv)));
+        } }, VERDICT_SAY[vv])));
       row.replaceChildren(btns, form);
       sync();
     };
@@ -204,15 +207,15 @@
     return h('article', { class: 'crit-issue' },
       h('div', { class: 'crit-issue-head' },
         h('span', { class: 'tag' }, x.viewpoint), h('span', { class: 'tag' }, x.criterion),
-        h('span', { class: `tag ${x.evidence_type === '추정' ? 'revise' : 'pass'}` }, x.evidence_type),
-        h('span', { class: `tag ${SEV[x.severity] || ''}` }, `심각도 ${x.severity}`),
+        h('span', { class: `tag ${x.evidence_type === '추정' ? 'revise' : 'pass'}`, title: x.evidence_type === '추정' ? '장표만 보고 짐작한 지적이에요. 사실과 다르면 "틀려요"로 판정해 주세요.' : '장표나 내가 확인한 사실에 근거한 지적이에요.' }, x.evidence_type === '추정' ? '짐작' : '근거 있음'),
+        h('span', { class: `tag ${SEV[x.severity] || ''}` }, `중요도 ${x.severity}`),
         where ? h('span', { class: 'crit-where' }, where) : null),
       h('div', { class: 'crit-issue-body' },
         h('div', { class: 'crit-issue-text' },
           h('dl', { class: 'crit-dl' },
-            h('dt', {}, '기대 기준'), h('dd', {}, x.standard || '-'),
-            h('dt', {}, '격차'), h('dd', {}, x.gap || '-'),
-            h('dt', {}, '개선 방향'), h('dd', {}, h('ul', { class: 'crit-fixes' }, x.fixes.map((f) => h('li', {}, h('b', {}, f.type), h('span', {}, f.text))))))),
+            h('dt', {}, '이 정도면 좋아요'), h('dd', {}, x.standard || '-'),
+            h('dt', {}, '지금 부족한 점'), h('dd', {}, x.gap || '-'),
+            h('dt', {}, '이렇게 고쳐 보세요'), h('dd', {}, h('ul', { class: 'crit-fixes' }, x.fixes.map((f) => h('li', {}, h('b', { title: FIX_HINT[f.type] || '' }, f.type), h('span', {}, f.text))))))),
         slideFigure(C, loc)),
       verdictRow(C, x));
   }
@@ -223,7 +226,7 @@
     return h('div', { class: 'crit-score' },
       h('div', { class: 'crit-total' }, h('b', {}, t.total.toFixed(2)), h('span', {}, '/ 5 · 가중 평균')),
       h('div', { class: 'table-wrap' }, h('table', {},
-        h('thead', {}, h('tr', {}, h('th', {}, '항목 (비중)'), t.lenses.map((l) => h('th', {}, l.replace(' 시점', ''))), h('th', {}, '평균'))),
+        h('thead', {}, h('tr', {}, h('th', {}, '항목 (비중)'), t.lenses.map((l) => h('th', {}, l.replace(/ (시점|관점)$/, ''))), h('th', {}, '평균'))),
         h('tbody', {}, t.rows.map((r) => h('tr', {}, h('td', {}, `${r.criterion} (${r.weight}%)`), r.scores.map((s) => h('td', {}, s ?? '-')), h('td', {}, h('b', {}, r.avg ?? '-'))))))));
   }
 
@@ -244,6 +247,7 @@
     return wrap;
   }
 
+  const openFolds = new Set();
   D.critiqueReport = (body, m) => {
     body.classList.add('report', 'crit-report');
     body.innerHTML = D.markdown(m.text.split('\n').slice(0, 2).join('\n'));
@@ -252,27 +256,34 @@
       const K = S.me.critique;
       const bad = C.checks.filter((c) => c.result !== '통과');
       const section = (title, ...kids) => h('section', { class: 'crit-sec' }, h('h3', {}, title), kids);
+      // 길어지지 않게: 요약·Top 3·점수만 펼쳐 두고 나머지는 접는다. 펼친 상태는 다시 그려도 유지한다.
+      const fold = (key, title, note, ...kids) => {
+        const id = `${C.id}:${key}`;
+        return h('details', { class: 'crit-fold', open: openFolds.has(id), ontoggle: (e) => { e.target.open ? openFolds.add(id) : openFolds.delete(id); } },
+          h('summary', {}, h('span', { class: 'crit-fold-title' }, title), note ? h('span', { class: 'crit-fold-note' }, note) : null, D.icon.chevron(18)),
+          h('div', { class: 'crit-fold-body' }, kids));
+      };
       const judged = C.issues.filter((x) => x.user_verdict !== '미판정').length;
       body.replaceChildren(...[
         h('div', { class: 'crit-head' },
           h('span', { class: 'tag' }, K.purposes[C.purpose]?.label || C.purpose), h('span', { class: 'tag' }, `${K.stages[C.stage]?.label || C.stage} 단계`),
           C.slides.length ? h('span', { class: 'tag' }, `장표 ${C.slides.length}장`) : null),
         C.synth?.summary ? h('p', { class: 'crit-summary' }, C.synth.summary) : null,
+        C.synth?.top3?.length ? section(`먼저 고칠 점 ${C.synth.top3.length}가지`, h('ol', { class: 'crit-top' }, C.synth.top3.map((t) => h('li', {}, h('b', {}, t.title), t.why ? h('span', {}, t.why) : null)))) : null,
         scoreBlock(C),
-        C.synth?.top3?.length ? section(`고칠 점 Top ${C.synth.top3.length}`, h('ol', { class: 'crit-top' }, C.synth.top3.map((t) => h('li', {}, h('b', {}, t.title), t.why ? h('span', {}, t.why) : null)))) : null,
-        C.issues.length ? section(`시점별 지적 ${C.issues.length}개`,
-          h('p', { class: 'crit-dim' }, `지적마다 맞는지 판정해 주세요. 판정이 쌓이면 DOMO의 크리틱이 나아집니다.${judged ? ` (${judged}/${C.issues.length} 판정함)` : ''}`),
+        C.issues.length ? fold('issues', `관점별 피드백 ${C.issues.length}개`, judged ? `${judged}/${C.issues.length} 판정함` : '맞는지 판정해 주세요',
+          h('p', { class: 'crit-dim' }, '피드백마다 맞음·틀림·애매를 골라 주세요. 판정이 쌓이면 DOMO의 크리틱이 나아집니다.'),
           C.issues.map((x) => issueCard(C, x))) : null,
-        C.checks.length || C.checkSkipped ? section('검증',
-          C.checkSkipped ? h('p', { class: 'crit-warn' }, '검증 호출이 실패해 숫자·일관성 확인은 건너뛰었습니다.') : null,
+        C.checks.length || C.checkSkipped ? fold('checks', '숫자·일관성 검증', C.checkSkipped ? '건너뜀' : bad.length ? `문제 ${bad.length}개` : '문제 없음',
+          C.checkSkipped ? h('p', { class: 'crit-warn' }, '검증을 맡은 AI가 답하지 못해 숫자·일관성 확인은 건너뛰었습니다.') : null,
           bad.length ? h('ul', { class: 'crit-checks' }, bad.map((c) => h('li', {}, h('span', { class: `tag ${c.result === '문제' ? 'revise' : ''}` }, c.result), h('b', {}, c.item), h('span', {}, `${c.note}${c.slide ? ` · ${pad(c.slide)}번` : ''}`))))
             : C.checks.length ? h('p', { class: 'crit-dim' }, `확인한 ${C.checks.length}개 항목에서 문제를 찾지 못했어요.`) : null,
           bad.length && C.checks.length > bad.length ? h('p', { class: 'crit-dim' }, `그 밖의 ${C.checks.length - bad.length}개 항목은 통과했어요.`) : null) : null,
-        C.questions.length || C.synth?.qa?.length ? section('예상 질문과 답변 준비',
+        C.questions.length || C.synth?.qa?.length ? fold('qa', '예상 질문과 답변 준비', `${(C.synth?.qa?.length || 0) + C.questions.length}개`,
           C.synth?.qa?.length ? h('ul', { class: 'crit-qa' }, C.synth.qa.map((x) => h('li', {}, h('b', {}, x.q), h('span', {}, x.a)))) : null,
-          C.questions.length ? h('details', { class: 'crit-more' }, h('summary', {}, `시점별 질문 ${C.questions.length}개 모두 보기`),
+          C.questions.length ? h('details', { class: 'crit-more' }, h('summary', {}, `관점별 질문 ${C.questions.length}개 모두 보기`),
             h('ul', {}, C.questions.map((q) => h('li', {}, `(${q.viewpoint}) ${q.text}`)))) : null) : null,
-        ...C.raw.map((l) => section(`${l.label} (형식을 읽지 못해 원문 그대로)`, h('div', { html: D.markdown(l.text) }))),
+        ...C.raw.map((l, i) => fold(`raw${i}`, `${l.label} 원문`, '정리된 형식으로 읽지 못함', h('div', { html: D.markdown(l.text) }))),
         outcomeBlock(C),
         h('p', { class: 'crit-cost' }, `AI 호출 ${C.totals.calls}회 · ${(C.totals.ms / 1000).toFixed(0)}초${C.totals.costUsd ? ` · $${C.totals.costUsd.toFixed(2)}` : ''}${C.totals.tokensIn ? ` · 토큰 ${(C.totals.tokensIn + C.totals.tokensOut).toLocaleString()}` : ''}`),
       ].filter(Boolean));

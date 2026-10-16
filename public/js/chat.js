@@ -503,6 +503,7 @@
   function drawTyping() {
     const holder = $('typingRows');
     if (!holder) return;
+    drawProgress(holder);
     const set = S.typing[S.roomId] || new Set();
     for (const [id, row] of typingRows) if (!set.has(id) || !row.el.isConnected) { clearTimeout(row.timer); row.el.remove(); typingRows.delete(id); }
     for (const id of set) {
@@ -535,6 +536,27 @@
       if (wait && !row.timer) row.timer = setTimeout(() => { row.timer = null; D.renderTyping(); }, wait + 20);
     }
     if (pinned) { const b = $('messages'); b.scrollTop = b.scrollHeight; }
+  }
+
+  // 팀 작업 단계 표시: 전체 중 어디쯤인지 + 지금 단계에서 지난 시간. 단계가 바뀔 때만 다시 그린다.
+  const PROGRESS_TITLE = { critique: '크리틱 리허설', research: '데스크리서치' };
+  let progressSig = '';
+  function drawProgress(holder) {
+    const p = S.progress[S.roomId];
+    let box = holder.querySelector('.team-progress');
+    if (!p) { box?.remove(); progressSig = ''; return; }
+    const sig = `${S.roomId}|${p.team}|${p.current}|${p.since}`;
+    if (box && sig === progressSig) return;
+    progressSig = sig;
+    const at = p.steps.findIndex((x) => x.key === p.current);
+    const el = h('div', { class: 'team-progress', role: 'status', 'aria-live': 'polite' },
+      h('div', { class: 'team-progress-head' },
+        h('b', {}, PROGRESS_TITLE[p.team] || '팀 작업'),
+        h('span', {}, `${at + 1}/${p.steps.length} · ${p.steps[at]?.label || ''}`),
+        D.elapsed(p.since, p.now)),
+      D.stepper(p.steps, { current: p.current }),
+      p.hint ? h('div', { class: 'team-progress-hint' }, p.hint) : null);
+    if (box) box.replaceWith(el); else holder.prepend(el);
   }
 
   // 맨 아래를 따라갈지: 사용자가 위로 올리면 멈추고, 다시 맨 아래로 내려오면 따라간다.

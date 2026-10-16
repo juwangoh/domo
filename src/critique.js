@@ -5,7 +5,7 @@
 //  모델 이름은 여기에 없다. 어떤 단계에 어떤 모델을 쓸지는 설정(settings.critiqueModels)에서 정한다.
 
 const STEPS = ['read', 'lens', 'check', 'locate', 'synth'];
-const STEP_LABEL = { read: '읽기 확인', lens: '시점별 크리틱', check: '검증', locate: '위치 지정', synth: '종합 리포트' };
+const STEP_LABEL = { read: '읽기 확인', lens: '관점별 크리틱', check: '검증', locate: '위치 지정', synth: '종합 리포트' };
 
 // 평가 항목과 점수 앵커 (2점·4점은 인접 앵커의 중간)
 const CRITERIA = [
@@ -41,9 +41,9 @@ const PURPOSES = {
     label: '수업 제출',
     weights: { problem: 20, research: 25, concept: 20, form: 20, delivery: 15 },
     lenses: [
-      { id: 'professor', label: '교수 시점', focus: '과제를 낸 교수로서 논리·근거·완성도를 엄격히 본다. 발표 때 실제로 물을 질문을 떠올린다.' },
-      { id: 'user', label: '사용자 시점', focus: '이 서비스·제품을 실제로 쓰는 사람의 맥락에서 본다. 누가, 언제, 왜 쓰는지가 설득되는지 본다.' },
-      { id: 'detail', label: '디테일 시점', focus: '형태·비례·소재·타이포·레이아웃 같은 시각적 완성도와 장표 간 일관성을 본다.' },
+      { id: 'professor', label: '교수 관점', focus: '과제를 낸 교수로서 논리·근거·완성도를 엄격히 본다. 발표 때 실제로 물을 질문을 떠올린다.' },
+      { id: 'user', label: '사용자 관점', focus: '이 서비스·제품을 실제로 쓰는 사람의 맥락에서 본다. 누가, 언제, 왜 쓰는지가 설득되는지 본다.' },
+      { id: 'detail', label: '디테일 관점', focus: '형태·비례·소재·타이포·레이아웃 같은 시각적 완성도와 장표 간 일관성을 본다.' },
     ],
     notes: [],
     checklist: [],
@@ -52,9 +52,9 @@ const PURPOSES = {
     label: '공모전',
     weights: { problem: 15, research: 10, concept: 25, form: 30, delivery: 20 },
     lenses: [
-      { id: 'professor', label: '심사위원 시점', focus: '수많은 출품작을 짧은 시간에 보는 공모전 심사위원으로서 본다. 아이디어의 새로움과 완성도가 첫 장에서 읽히는지 본다.' },
-      { id: 'user', label: '사용자 시점', focus: '이 서비스·제품을 실제로 쓰는 사람의 맥락에서 본다. 기능이 실제 장면에서 작동하는지 본다.' },
-      { id: 'detail', label: '디테일 시점', focus: '형태·비례·소재·타이포·레이아웃의 완성도를 보고, 아래 공모전 체크를 함께 확인한다.' },
+      { id: 'professor', label: '심사위원 관점', focus: '수많은 출품작을 짧은 시간에 보는 공모전 심사위원으로서 본다. 아이디어의 새로움과 완성도가 첫 장에서 읽히는지 본다.' },
+      { id: 'user', label: '사용자 관점', focus: '이 서비스·제품을 실제로 쓰는 사람의 맥락에서 본다. 기능이 실제 장면에서 작동하는지 본다.' },
+      { id: 'detail', label: '디테일 관점', focus: '형태·비례·소재·타이포·레이아웃의 완성도를 보고, 아래 공모전 체크를 함께 확인한다.' },
     ],
     notes: [
       '컨셉 명확성을 볼 때 차별성(이미 있는 것과 무엇이 다른가)을 하위 체크로 함께 본다.',
@@ -66,9 +66,9 @@ const PURPOSES = {
     label: '비헨스',
     weights: { problem: 10, research: 5, concept: 20, form: 35, delivery: 30 },
     lenses: [
-      { id: 'professor', label: '큐레이터 시점', focus: '비헨스 큐레이터로서 본다. 생각이 깊은 작업인지, 시각적으로 강렬하고 정밀하게 완성됐는지, 보여주는 방식이 좋은지 본다.' },
-      { id: 'user', label: '관객 시점', focus: '피드를 스크롤하다 커버를 본 관객으로서 본다. 커버가 멈추게 하는지, 이미지 흐름만으로 이야기가 읽히는지 본다.' },
-      { id: 'detail', label: '디테일 시점', focus: '형태·타이포·이미지 품질의 정밀함을 보고, 아래 비헨스 체크리스트를 함께 확인한다.' },
+      { id: 'professor', label: '큐레이터 관점', focus: '비헨스 큐레이터로서 본다. 생각이 깊은 작업인지, 시각적으로 강렬하고 정밀하게 완성됐는지, 보여주는 방식이 좋은지 본다.' },
+      { id: 'user', label: '관객 관점', focus: '피드를 스크롤하다 커버를 본 관객으로서 본다. 커버가 멈추게 하는지, 이미지 흐름만으로 이야기가 읽히는지 본다.' },
+      { id: 'detail', label: '디테일 관점', focus: '형태·타이포·이미지 품질의 정밀함을 보고, 아래 비헨스 체크리스트를 함께 확인한다.' },
     ],
     notes: [
       '문제 정의는 "작업의 맥락이 설명되는가"로 본다.',

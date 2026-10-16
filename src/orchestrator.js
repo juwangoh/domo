@@ -12,6 +12,7 @@ const { localDate } = require('./scheduler');
 const studio = require('./studio');
 const team = require('./team');
 const critique = require('./critique');
+const { IDEATION_SHORT } = require('./craft');
 
 // 팀 작업의 호출 1회 제한 시간. 넘기면 실패로 보고 대신 맡을 AI 에게 넘긴다.
 const TEAM_TIMEOUT_MS = 5 * 60 * 1000;
@@ -137,6 +138,7 @@ class Orchestrator {
       else this.post(roomId, 'system', `진행 중 오류: ${err.message}`, { kind: 'error' });
     } finally {
       this.running.delete(roomId);
+      if (job.progress) this.bus.emit('progress', { roomId, done: true });
       this.bus.emit('status', { roomId, running: false });
     }
     if (aborted) {
@@ -192,6 +194,18 @@ class Orchestrator {
     } finally {
       this.bus.emit('typing', { roomId: room.id, agentId: agent.id, on: false });
     }
+  }
+
+  // 팀 작업의 단계 진행 (화면의 단계 표시용, 저장하지 않는다).
+  // steps: [[key, label]], current: 지금 단계 key, hint: 전체 예상 시간 안내
+  progress(room, job, { team: name, steps, current, hint = '' }) {
+    const since = job.progress?.current === current ? job.progress.since : Date.now();
+    job.progress = { team: name, steps: steps.map(([key, label]) => ({ key, label })), current, hint, since };
+    this.bus.emit('progress', { roomId: room.id, ...job.progress, now: Date.now() });
+  }
+
+  progressOf(roomId) {
+    return this.running.get(roomId)?.progress || null;
   }
 
   teamMeta(agent, res, extra) {
@@ -272,6 +286,9 @@ class Orchestrator {
     if (cmd === 'critique') return this.startCritique(room, crew, job, text, lastUser);
 
     if (cmd === 'research') {
+      const steps = [['facts', '자료 조사'], ...(verifier ? [['check', '교차 검증']] : []), ['wrap', '정리·다음 작업']];
+      const step = (current) => this.progress(room, job, { team: 'research', steps, current, hint: verifier ? '보통 2~4분 걸려요' : '보통 1~3분 걸려요' });
+      step('facts');
       this.post(room.id, 'system', verifier
         ? `데스크리서치 · ${researcher.name}가 조사하고 ${verifier.name}가 교차 검증합니다`
         : `데스크리서치 · ${researcher.name}가 조사합니다 · 교차 검증은 생략됩니다 (${skip})`, { kind: 'stage', team: 'research' });
@@ -282,6 +299,7 @@ class Orchestrator {
       if (!verifier) {
         this.post(room.id, 'system', `교차 검증 생략됨 (${skip}) · 위 팩트시트는 다른 AI가 확인하지 않았습니다.${skip === 'Codex 미연결' ? ' 설정 → AI 연결에서 ChatGPT를 연결하면 다음부터 교차 검증합니다.' : ''}`, { kind: 'limit', team: 'research' });
       } else {
+        step('check');
         const chk = await this.ask(room, verifier, job, team.prompts.crosscheck({ request, facts: facts.text }));
         if (chk) {
           const { verdict, body } = this.splitVerdict(chk.text);
@@ -291,6 +309,7 @@ class Orchestrator {
       }
       // 마무리: 조사와 검증을 한데 모아 요약하고, 다음에 이어갈 작업을 버튼으로 건넨다.
       const lead = A(R.pm) || primary;
+      step('wrap');
       const wrap = await this.ask(room, lead, job, team.prompts.wrap({ request, facts: facts.text, check, about: this.memory.aboutText?.() || '', principles, unverified: !verifier }));
       if (!wrap) return;
       const { body: summary, next } = team.parseNext(wrap.text, request);
@@ -319,6 +338,11 @@ class Orchestrator {
   stepModel(step, agent) {
     const id = this.profiles.settings.critiqueModels?.[step];
     return id && MODELS[agent.engine]?.some((m) => m.id === id) ? id : null;
+  }
+
+  critiqueStep(room, job, current) {
+    const steps = [['read', '결과물 읽기'], ['confirm', '내 확인'], ['lens', '관점 3개 크리틱'], ['check', '검증'], ['locate', '위치 표시'], ['synth', '종합 리포트']];
+    this.progress(room, job, { team: 'critique', steps, current, hint: current === 'read' ? '읽기는 보통 20~40초 걸려요' : '여기서부터 보통 1~2분 걸려요' });
   }
 
   // fallback: 맡은 AI 가 답하지 못하면(다른 회사 모델의 설정 문제 등) 대신 맡을 AI
@@ -361,6 +385,7 @@ class Orchestrator {
     room.critique = { id: C.id, awaiting: null };
     const lead = A(R.pm) || primary;
     this.post(room.id, 'system', `크리틱 리허설 · ${critique.PURPOSES[purpose].label} · ${critique.STAGES[stage].label} 단계 · 먼저 ${lead.name}가 결과물을 어떻게 읽었는지 보여 드립니다`, { kind: 'stage', team: 'critique' });
+    this.critiqueStep(room, job, 'read');
     const res = await this.askStep(room, lead, job, C, 'read', critique.prompts.read(C));
     if (!res) { room.critique = null; this.critiques.update(C.id, { status: 'failed' }); this.saveProject(room); return; }
     const ai = critique.parseRead(res.text, slides);
@@ -412,7 +437,8 @@ class Orchestrator {
     const tags = { ...C.input, purpose: C.purpose, stage: C.stage };
     const examples = this.examples?.pick(tags) || [];
     this.critiques.update(C.id, { status: 'running', exampleCount: examples.length });
-    this.post(room.id, 'system', `시점별 크리틱 · ${P.lenses.map((l, i) => `${l.label}(${who[i].name})`).join(' · ')}이 서로를 보지 않고 봅니다`, { kind: 'stage', team: 'critique' });
+    this.critiqueStep(room, job, 'lens');
+    this.post(room.id, 'system', `관점별 크리틱 · ${P.lenses.map((l, i) => `${l.label}(${who[i].name})`).join(' · ')}이 서로를 보지 않고 봅니다`, { kind: 'stage', team: 'critique' });
     const done = await Promise.all(P.lenses.map(async (lens, i) => {
       const res = await this.askStep(room, who[i], job, C, 'lens', critique.prompts.lens(C, lens, examples), A(R.critic) || primary);
       return res ? { lens, agent: who[i], ...critique.parseLens(res.text, lens, { scores: stage.scores }) } : null;
@@ -428,6 +454,7 @@ class Orchestrator {
     // 검증: 의견이 아니라 숫자·일관성·체크리스트만
     const checker = verifierAny || primary;
     this.post(room.id, 'system', `검증 · ${checker.name}가 숫자·장표 간 일관성${P.checklist.length ? `·${P.label} 체크리스트` : ''}를 확인합니다`, { kind: 'stage', team: 'critique' });
+    this.critiqueStep(room, job, 'check');
     const auto = critique.autoChecks(C.purpose, C.slides);
     const chk = await this.askStep(room, checker, job, C, 'check', critique.prompts.check(C, auto), primary);
     const checks = [...auto, ...(chk ? critique.parseCheck(chk.text) : [])];
@@ -435,12 +462,14 @@ class Orchestrator {
 
     // 위치 지정: 지적 글에 장표 번호와 영역만 붙인다
     if (C.slides.length && issues.length) {
+      this.critiqueStep(room, job, 'locate');
       const loc = await this.askStep(room, lead, job, C, 'locate', critique.prompts.locate(C, issues));
       const map = loc ? critique.parseLocate(loc.text, C.slides.length) : {};
       for (const x of issues) if (map[x.id]) x.location = { ...x.location, ...map[x.id] };
       C = this.critiques.update(C.id, { issues });
     }
 
+    this.critiqueStep(room, job, 'synth');
     const syn = await this.askStep(room, lead, job, C, 'synth', critique.prompts.synth(C, { issues, checks, table: table ? critique.tableText(table) : '' }));
     const synth = syn ? critique.parseSynth(syn.text) : { summary: '', top3: [], qa: [] };
     if (synth.raw) raw.push({ label: '종합', text: synth.raw });
@@ -948,6 +977,7 @@ class Orchestrator {
       agent.useMemory !== false ? this.memoryContext(room.id) : '',
       // Claude Code 는 작업 폴더의 스킬 파일을 직접 쓰므로, 스킬 파일을 못 읽는 엔진에만 요약을 넣는다.
       agent.engine !== 'claude' ? this.skills?.promptText() || '' : '',
+      IDEATION_SHORT,
       '[메신저 규칙] 한국어로 메신저답게 간결하게 쓰세요. 필요할 때만 목록·표·코드 블록을 쓰세요.',
     ];
     return parts.filter(Boolean).join('\n\n');

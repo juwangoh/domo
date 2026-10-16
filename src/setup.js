@@ -40,7 +40,8 @@ class AiSetup {
     const out = {};
     for (const tool of Object.keys(TOOLS)) {
       const j = this.jobs[tool];
-      out[tool] = j ? { phase: j.phase, url: j.url, error: j.error, line: j.lines.at(-1) || '' } : null;
+      // steps: 이번 연결에서 거치는 단계(설치가 필요 없으면 설치 단계는 빠진다). since: 지금 단계를 시작한 시각(경과 시간 표시용).
+      out[tool] = j ? { phase: j.phase, url: j.url, error: j.error, detail: j.detail || '', failedAt: j.failedAt || null, line: j.lines.at(-1) || '', steps: j.steps, since: j.since, now: Date.now() } : null;
     }
     return out;
   }
@@ -53,8 +54,10 @@ class AiSetup {
   connect(tool) {
     if (!TOOLS[tool]) return { error: '알 수 없는 AI 입니다.', status: 404 };
     const cur = this.jobs[tool];
-    if (cur && (cur.phase === 'install' || cur.phase === 'login')) return { ok: true };
-    const job = { phase: this.#installed(tool) ? 'login' : 'install', url: null, error: null, lines: [], child: null, cancelled: false };
+    if (cur && ['install', 'login', 'verify'].includes(cur.phase)) return { ok: true };
+    const phase = this.#installed(tool) ? 'login' : 'install';
+    const steps = phase === 'install' ? ['install', 'login', 'verify'] : ['login', 'verify'];
+    const job = { phase, steps, since: Date.now(), url: null, error: null, detail: '', lines: [], child: null, cancelled: false };
     this.jobs[tool] = job;
     this.#run(tool, job).catch((err) => this.#end(tool, job, 'error', err.message));
     return { ok: true };
@@ -65,8 +68,8 @@ class AiSetup {
       const [cmd, args] = this.commands[tool]?.install || TOOLS[tool].install();
       const code = await this.#exec(job, () => spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CODEX_NON_INTERACTIVE: '1' }, windowsHide: true }), INSTALL_TIMEOUT_MS);
       if (job.cancelled) return;
-      if (code !== 0 || !this.#installed(tool)) return this.#end(tool, job, 'error', `설치하지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.${job.lines.length ? ` (${job.lines.at(-1).slice(0, 160)})` : ''}`);
-      job.phase = 'login';
+      if (code !== 0 || !this.#installed(tool)) return this.#end(tool, job, 'error', code === null ? '설치하지 못했습니다. 시간이 너무 오래 걸렸어요. 인터넷 연결을 확인하고 다시 시도해 주세요.' : '설치하지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.', job.lines.slice(-6).join('\n'));
+      this.#step(job, 'login');
       job.lines = [];
       this.onChange?.();
     }
@@ -75,10 +78,12 @@ class AiSetup {
       ? spawn(custom[0], custom[1], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       : spawnBin(TOOLS[tool].bin, TOOLS[tool].login, { stdio: ['pipe', 'pipe', 'pipe'], env: process.env })), LOGIN_TIMEOUT_MS);
     if (job.cancelled) return;
+    this.#step(job, 'verify');
     this.connections?.invalidate();
     const st = await this.connections?.status({ refresh: true });
     if (code === 0 && (!st || st[tool]?.loggedIn)) return this.#end(tool, job, 'done');
-    this.#end(tool, job, 'error', code === null ? '로그인 시간이 지났습니다. 다시 시도해 주세요.' : '로그인을 마치지 못했습니다. 다시 시도해 주세요.');
+    if (code === 0 && st && !st[tool]?.loggedIn) return this.#end(tool, job, 'error', '로그인은 끝났지만 연결을 확인하지 못했어요. 유료 구독 계정인지 확인하고 다시 시도해 주세요.', st[tool]?.error || '');
+    this.#end(tool, job, 'error', code === null ? '로그인 시간이 지났습니다. 다시 시도해 주세요.' : '로그인을 마치지 못했습니다. 브라우저 창을 닫았다면 다시 시도해 주세요.', job.lines.slice(-6).join('\n'));
   }
 
   // 프로세스를 실행하고 출력에서 로그인 주소와 마지막 줄을 모은다. 종료 코드를 돌려준다 (시간 초과는 null).
@@ -108,10 +113,20 @@ class AiSetup {
     });
   }
 
-  #end(tool, job, phase, error = null) {
+  #step(job, phase) {
+    job.phase = phase;
+    job.since = Date.now();
+    this.onChange?.();
+  }
+
+  // error: 사용자에게 보여 줄 안내, detail: 설치·로그인 프로그램이 남긴 원문 ("자세히"에서만 보인다)
+  #end(tool, job, phase, error = null, detail = '') {
     if (this.jobs[tool] !== job) return;
+    if (phase === 'error') job.failedAt = job.phase;
     job.phase = phase;
     job.error = error;
+    job.detail = String(detail || '').slice(0, 1200);
+    job.since = Date.now();
     job.child = null;
     this.onChange?.();
   }

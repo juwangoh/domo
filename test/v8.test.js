@@ -82,8 +82,8 @@ test('확인 후: 시점 3 → 검증 1 → 위치 지정 1 → 종합 1 로 나
     assert.match(l.prompt, /항목별 비중: 문제 정의 15%/, '공모전 비중');
     assert.ok(!l.prompt.includes('수치에 출처가 없다'), '다른 시점의 결과를 보지 않음');
   }
-  assert.equal(lens.filter((l) => /심사위원 시점/.test(l.prompt)).length, 1, '용도에 따라 보는 사람이 바뀜');
-  assert.match(lens.find((l) => /디테일 시점/.test(l.prompt)).prompt, /공모전 체크[\s\S]*지속가능성/);
+  assert.equal(lens.filter((l) => /심사위원 관점/.test(l.prompt)).length, 1, '용도에 따라 보는 사람이 바뀜');
+  assert.match(lens.find((l) => /디테일 관점/.test(l.prompt)).prompt, /공모전 체크[\s\S]*지속가능성/);
   // 앞부분(루브릭·규칙)은 시점이 달라도 글자가 같다 → 캐싱 대상
   assert.ok(lens.every((l) => l.prompt.includes(critique.RUBRIC_BLOCK)));
 

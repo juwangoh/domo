@@ -10,6 +10,7 @@
     view: 'home', // home | chat | team | memory | insights | settings
     messages: [],
     typing: {},
+    progress: {}, // roomId → 팀 작업 단계 진행 { team, steps, current, hint, since, now }
     activity: {},
     unread: {},
     memory: null,
@@ -318,6 +319,25 @@
     return { text: `${due.slice(5).replace('-', '/')} · D-${days}`, cls: '' };
   };
 
+  // 단계 진행 표시: 끝난 단계는 체크, 지금 단계는 숨 쉬듯 움직이고, 실패한 단계는 느낌표.
+  // steps: [{ key, label }], current: 지금 단계 key, failed: 실패한 단계 key, done: 모두 끝났으면 true
+  D.stepper = (steps, { current, failed, done = false } = {}) => {
+    const at = steps.findIndex((s) => s.key === (failed || current));
+    return h('ol', { class: 'stepper', style: `--steps:${steps.length}` }, steps.map((s, i) => {
+      const state = done || (at >= 0 && i < at) ? 'done' : s.key === failed ? 'failed' : s.key === current ? 'now' : 'todo';
+      return h('li', { class: `step ${state}`, 'aria-current': state === 'now' ? 'step' : null },
+        h('span', { class: 'step-dot' }, state === 'done' ? D.icon.check(12) : state === 'failed' ? '!' : String(i + 1)),
+        h('span', { class: 'step-label' }, s.label));
+    }));
+  };
+
+  // 경과 시간: since(서버 시각) 부터 지난 시간을 1초마다 갱신한다. serverNow 로 서버와 내 시계 차이를 보정한다.
+  D.elapsed = (since, serverNow = Date.now()) => h('span', { class: 'elapsed', 'data-since': String(since - (serverNow - Date.now())) }, D.fmtElapsed(Date.now() - (since - (serverNow - Date.now()))));
+  D.fmtElapsed = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`; };
+  setInterval(() => {
+    for (const el of document.querySelectorAll('.elapsed[data-since]')) el.textContent = D.fmtElapsed(Date.now() - Number(el.dataset.since));
+  }, 1000);
+
   // 아이콘 (선 굵기 1.7, currentColor)
   // createElement('svg')는 HTML 요소가 되어 그려지지 않으므로, template 으로 SVG 네임스페이스에서 파싱한다.
   const icon = (d, size = 20) => {
@@ -343,6 +363,7 @@
     copy: (s) => icon('<rect x="8" y="8" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 15V6a1 1 0 0 1 1-1h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>', s),
     reply: (s) => icon('<path d="M10 8 5 12.5l5 4.5M5.5 12.5H14a5 5 0 0 1 5 5V19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>', s),
     chevron: (s) => icon('<path d="m8 10 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', s),
+    check: (s) => icon('<path d="m5.5 12.5 4.2 4.2 8.8-9.4" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>', s),
     spark: (s) => icon('<path d="M12 3.5c.4 3.9 2.6 6.1 6.5 6.5-3.9.4-6.1 2.6-6.5 6.5-.4-3.9-2.6-6.1-6.5-6.5 3.9-.4 6.1-2.6 6.5-6.5zM18.5 15.5c.2 1.6 1 2.4 2.5 2.5-1.5.2-2.3 1-2.5 2.5-.2-1.5-1-2.3-2.5-2.5 1.5-.1 2.3-.9 2.5-2.5z" fill="currentColor"/>', s),
   };
 })();

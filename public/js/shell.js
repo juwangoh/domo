@@ -7,6 +7,7 @@
   D.loadMe = async () => { S.me = await api('GET', '/api/me'); };
   D.loadRooms = async () => {
     S.rooms = (await api('GET', '/api/rooms')).rooms;
+    for (const r of S.rooms) if (r.progress) S.progress[r.id] = r.progress; else delete S.progress[r.id];
     D.renderSidebar();
     if (S.roomId && !S.rooms.some((r) => r.id === S.roomId) && S.view === 'chat') location.hash = '#/';
     else if (S.view === 'chat') { D.renderChatHeader(); D.renderTopbar(); }
@@ -67,10 +68,14 @@
       (S.activity[roomId] ||= {})[agentId] = { label, text };
       if (roomId === S.roomId) D.renderTyping();
     });
+    on('progress', (p) => {
+      if (p.done) delete S.progress[p.roomId]; else S.progress[p.roomId] = p;
+      if (p.roomId === S.roomId) D.renderTyping();
+    });
     on('status', ({ roomId, running }) => {
       const room = S.rooms.find((r) => r.id === roomId);
       if (room) room.running = running;
-      if (!running) { S.typing[roomId]?.clear(); if (S.activity[roomId]) S.activity[roomId] = {}; }
+      if (!running) { S.typing[roomId]?.clear(); if (S.activity[roomId]) S.activity[roomId] = {}; delete S.progress[roomId]; }
       if (roomId === S.roomId) { D.renderChatHeader(); D.renderTyping(); D.syncComposer(); }
       D.renderSidebar();
     });

@@ -97,7 +97,8 @@ test('설치에 실패하면 이유와 함께 다시 시도할 수 있게 알려
   await api('POST', '/api/ai-setup/codex/connect', {});
   const j = await phase('codex', 'error');
   assert.match(j.error, /설치하지 못했습니다/);
-  assert.match(j.error, /network down/);
+  assert.match(j.detail, /network down/, '원문은 자세히 칸에');
+  assert.equal(j.failedAt, 'install');
 });
 
 test('로그인을 기다리다 취소하면 프로세스를 끝낸다', async () => {

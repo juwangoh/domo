@@ -112,7 +112,7 @@ test('크리틱: 다른 회사 모델이 답하지 못하면 다른 AI 가 대�
   calls.length = 0;
   await api('POST', `/api/rooms/${room.id}/messages`, { text: '그대로' });
   const msgs = await idle(room.id);
-  assert.ok(msgs.some((m) => /대신 시점별 크리틱을 맡습니다/.test(m.text)));
+  assert.ok(msgs.some((m) => /대신 관점별 크리틱을 맡습니다/.test(m.text)));
   const { critique: C } = (await api('GET', `/api/critiques/${id}`)).data;
   assert.equal(C.status, 'done');
   assert.equal(C.calls.filter((c) => c.step === 'lens').length, 3);

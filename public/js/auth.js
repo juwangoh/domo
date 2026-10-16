@@ -70,7 +70,8 @@
 
   const CONNECT_SUB = '버튼을 누르면 브라우저가 열리고, 본인 계정으로 로그인하면 끝이에요. Claude는 유료 구독(Pro·Max)이 필요하고, Codex는 선택이에요.';
   async function stepConnect(root) {
-    if (!root.querySelector('.conn-list')) frame(root, 1, 'AI를 연결할게요', CONNECT_SUB, h('div', { class: 'conn-list' }, h('div', { class: 'muted' }, '확인하는 중…')));
+    if (!root.querySelector('.conn-list')) frame(root, 1, 'AI를 연결할게요', CONNECT_SUB, h('div', { class: 'conn-list', role: 'status', 'aria-label': '연결 상태를 확인하는 중' }, ['Claude', 'Codex (ChatGPT)'].map((t) => h('div', { class: 'conn-card skeleton' },
+      h('div', { class: 'conn-top' }, h('span', { class: 'conn-dot busy' }), h('b', {}, t), h('span', { class: 'conn-state' }, '확인하는 중…')), h('div', { class: 'skel-line' })))));
     const c = (await safe(api('GET', '/api/connections?refresh')))?.connections;
     if (!c) return;
     S.connections = c;
@@ -83,6 +84,15 @@
       !ok ? h('p', { class: 'onb-note' }, 'AI 연결 없이도 다음 단계는 진행할 수 있어요. 대화는 연결한 뒤에 시작됩니다.') : null);
   }
 
+  const STEP_LABEL = { install: '설치', login: '로그인', verify: '연결 확인' };
+  const PHASE_SAY = {
+    install: { state: '설치 중', title: '프로그램을 내려받아 설치하고 있어요', sub: '보통 1~2분 걸려요. 이 창은 그대로 두세요.' },
+    login: { state: '로그인 기다리는 중', title: '브라우저에서 로그인해 주세요', sub: '새로 열린 브라우저 창에서 본인 계정으로 로그인하면 자동으로 다음 단계로 넘어가요.' },
+    verify: { state: '확인 중', title: '연결을 확인하고 있어요', sub: '몇 초면 끝나요.' },
+  };
+  const lineText = (line) => (line ? `진행 중: ${String(line).slice(0, 80)}` : '');
+  const justConnected = new Set(); // 방금 연결된 AI (체크 모션을 한 번 보여 준다)
+
   // 연결 카드 (설정 화면에서도 같이 쓴다).
   // 이 컴퓨터에서 열었으면 버튼 하나로 설치 → 로그인까지 진행하고, 다른 기기·Codespace 에서는 터미널에서 할 일을 보여준다.
   D.connectionCards = (c, { onDone } = {}) => {
@@ -92,7 +102,7 @@
       codex: { title: 'Codex (ChatGPT)', cmd: c.codex.installed ? 'codex login' : 'npm install -g @openai/codex', plan: c.codex.method === 'chatgpt' ? 'ChatGPT 구독' : '' },
     };
     const keys = Object.keys(info);
-    const busy = (j) => j?.phase === 'install' || j?.phase === 'login';
+    const busy = (j) => ['install', 'login', 'verify'].includes(j?.phase);
     let setup = {};
     let shown = null;
     let timer = null;
@@ -110,32 +120,41 @@
           h('div', {}, st.installed ? `${c.codespace ? 'Codespace' : 'DOMO가 설치된 컴퓨터'}의 터미널에서 아래 명령을 실행하고, 브라우저에서 본인 계정으로 로그인하세요.` : '먼저 설치가 필요합니다.'),
           h('button', { class: 'cmd', type: 'button', title: '눌러서 복사', onclick: () => D.copy(info[key].cmd) }, h('code', {}, info[key].cmd), D.icon.copy(16)));
       }
-      if (j?.phase === 'install') {
-        return h('div', { class: 'conn-how' }, h('div', {}, '설치하는 중이에요. 1~2분 정도 걸려요.'),
-          h('div', { class: 'conn-actions' }, h('button', { class: 'btn-ghost small', type: 'button', onclick: () => act(key, 'cancel') }, '취소')));
-      }
-      if (j?.phase === 'login') {
-        let code = '';
+      const steps = (j?.steps || ['login', 'verify']).map((k) => ({ key: k, label: STEP_LABEL[k] }));
+      if (busy(j)) {
+        const say = PHASE_SAY[j.phase];
         return h('div', { class: 'conn-how' },
-          h('div', {}, '브라우저에 열린 창에서 본인 계정으로 로그인해 주세요. 로그인하면 자동으로 넘어갑니다.'),
-          j.url ? h('div', {}, '창이 안 열렸나요? ', h('a', { class: 'link-btn strong', href: j.url, target: '_blank', rel: 'noopener noreferrer' }, '로그인 창 다시 열기')) : null,
-          key === 'claude' && j.url ? h('form', { class: 'conn-code', onsubmit: (e) => { e.preventDefault(); if (code.trim()) act(key, 'code', { code: code.trim() }); } },
-            h('input', { class: 'auth-input', type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: '다시 연 창에 코드가 보이면 여기에 붙여넣기', 'aria-label': '로그인 코드', oninput: (e) => { code = e.target.value; } }),
-            h('button', { class: 'btn-ghost small', type: 'submit' }, '확인')) : null,
-          h('div', { class: 'conn-actions' }, h('button', { class: 'btn-ghost small', type: 'button', onclick: () => act(key, 'cancel') }, '취소')));
+          D.stepper(steps, { current: j.phase }),
+          h('div', { class: 'onb-progress' },
+            h('div', { class: 'onb-bar' }, h('i', {})),
+            h('div', { class: 'onb-progress-row' }, h('span', {}, say.title), D.elapsed(j.since, j.now)),
+            h('div', { class: 'onb-progress-sub' }, say.sub),
+            j.phase === 'install' ? h('div', { class: 'conn-line', 'data-key': key }, lineText(j.line)) : null),
+          j.phase === 'login' && j.url ? h('div', {}, '창이 안 열렸나요? ', h('a', { class: 'link-btn strong', href: j.url, target: '_blank', rel: 'noopener noreferrer' }, '로그인 창 다시 열기')) : null,
+          j.phase === 'login' && key === 'claude' && j.url ? codeForm(key) : null,
+          j.phase !== 'verify' ? h('div', { class: 'conn-actions' }, h('button', { class: 'btn-ghost small', type: 'button', onclick: () => act(key, 'cancel') }, '취소')) : null);
       }
       return h('div', { class: 'conn-how' },
+        j?.phase === 'error' ? D.stepper(steps, { failed: j.failedAt || steps[0].key }) : null,
         j?.phase === 'error' ? h('div', { class: 'conn-error', role: 'alert' }, j.error) : null,
+        j?.phase === 'error' && j.detail ? h('details', { class: 'conn-detail' }, h('summary', {}, '자세히 (도움을 요청할 때 보여 주세요)'), h('pre', {}, j.detail)) : null,
         h('div', { class: 'conn-actions' },
-          h('button', { class: 'btn-primary small', type: 'button', onclick: () => act(key, 'connect') }, j?.phase === 'error' ? '다시 시도' : st.installed ? '연결하기' : '설치하고 연결하기')));
+          h('button', { class: 'btn-primary small', type: 'button', onclick: () => act(key, 'connect') }, j?.phase === 'error' ? '다시 시도' : st.installed ? '연결하기' : '설치하고 연결하기')),
+        !j && !st.installed ? h('div', { class: 'onb-progress-sub' }, '설치 → 로그인 → 연결 확인 순서로 진행돼요. 보통 2~3분이면 끝나요.') : null);
+    };
+    const codeForm = (key) => {
+      let code = '';
+      return h('form', { class: 'conn-code', onsubmit: (e) => { e.preventDefault(); if (code.trim()) act(key, 'code', { code: code.trim() }); } },
+        h('input', { class: 'auth-input', type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: '다시 연 창에 코드가 보이면 여기에 붙여넣기', 'aria-label': '로그인 코드', oninput: (e) => { code = e.target.value; } }),
+        h('button', { class: 'btn-ghost small', type: 'submit' }, '확인'));
     };
     const card = (key) => {
       const st = c[key];
       const j = c.canSetup ? setup[key] : null;
-      const state = st.loggedIn ? `연결됨${info[key].plan ? ` · ${info[key].plan}` : ''}` : j?.phase === 'install' ? '설치 중' : j?.phase === 'login' ? '로그인 기다리는 중' : st.installed ? '로그인 필요' : '설치 필요';
-      return h('div', { class: `conn-card${st.loggedIn ? ' ok' : ''}` },
+      const state = st.loggedIn ? `연결됨${info[key].plan ? ` · ${info[key].plan}` : ''}` : busy(j) ? PHASE_SAY[j.phase].state : j?.phase === 'error' ? '다시 시도 필요' : st.installed ? '로그인 필요' : '설치 필요';
+      return h('div', { class: `conn-card${st.loggedIn ? ' ok' : ''}${st.loggedIn && justConnected.has(key) ? ' just' : ''}` },
         h('div', { class: 'conn-top' },
-          h('span', { class: `conn-dot${st.loggedIn ? ' ok' : busy(j) ? ' busy' : ''}` }),
+          h('span', { class: `conn-dot${st.loggedIn ? ' ok' : busy(j) ? ' busy' : ''}` }, st.loggedIn && justConnected.has(key) ? D.icon.check(10) : null),
           h('b', {}, info[key].title),
           h('span', { class: 'conn-state' }, state)),
         body(key));
@@ -155,10 +174,15 @@
       if (!list.isConnected) return; // 화면을 떠나면 멈춘다
       const r = await api('GET', '/api/ai-setup').catch(() => null);
       if (r) {
-        const finished = keys.some((k) => busy(setup[k]) && r.setup[k]?.phase === 'done');
+        const finished = keys.filter((k) => busy(setup[k]) && r.setup[k]?.phase === 'done');
         setup = r.setup;
-        if (finished) return onDone?.();
+        if (finished.length) {
+          finished.forEach((k) => { justConnected.add(k); setTimeout(() => justConnected.delete(k), 4000); });
+          return onDone?.();
+        }
         render();
+        // 설치 프로그램의 마지막 출력은 다시 그리지 않고 글자만 바꾼다 (살아 있다는 표시).
+        for (const k of keys) { const el = list.querySelector(`.conn-line[data-key="${k}"]`); if (el) el.textContent = lineText(setup[k]?.line); }
       }
       schedule();
     }

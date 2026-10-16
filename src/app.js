@@ -129,7 +129,7 @@ function createApp({
   }
 
   const clients = new Set();
-  for (const ev of ['message', 'update', 'typing', 'activity', 'status', 'rooms', 'agents', 'memory', 'schedules', 'tunnel', 'skills']) {
+  for (const ev of ['message', 'update', 'typing', 'progress', 'activity', 'status', 'rooms', 'agents', 'memory', 'schedules', 'tunnel', 'skills']) {
     bus.on(ev, (data) => {
       const chunk = `event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`;
       for (const res of clients) res.write(chunk);
@@ -165,7 +165,7 @@ function createApp({
     const msgs = store.messages(r.id);
     const p = r.project;
     const project = p ? { id: p.id, title: p.title, stage: p.stage, awaiting: p.awaiting, round: p.round, cancelled: !!p.cancelled } : null;
-    return { id: r.id, name: r.name, members: r.members, mode: r.mode, maxRounds: r.maxRounds, createdAt: r.createdAt, running: orch.isRunning(r.id), last: msgs.at(-1) || null, project };
+    return { id: r.id, name: r.name, members: r.members, mode: r.mode, maxRounds: r.maxRounds, createdAt: r.createdAt, running: orch.isRunning(r.id), progress: orch.progressOf(r.id) ? { ...orch.progressOf(r.id), now: Date.now() } : null, last: msgs.at(-1) || null, project };
   };
   const clientIp = (req) => {
     const ip = req.socket.remoteAddress || '';
